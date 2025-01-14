@@ -8,6 +8,7 @@ export default function Viewer() {
   const { roomId } = useParams();
   const [isConnected, setIsConnected] = useState(false);
   const [isViewing, setIsViewing] = useState(false);
+  const [viewers, setViewers] = useState<number>(0);
   const [error, setError] = useState<string>('');
   const [info, setInfo] = useState<string>('');
   const [logs, setLogs] = useState<string[]>([]);
@@ -57,14 +58,10 @@ export default function Viewer() {
                   deviceRef.current = device;
 
                   ws.send(JSON.stringify({
-                    type: 'create-transport',
+                    type: 'createTransport',
                     roomId,
                     clientId: clientId.current
                   }));
-                  console.log('clientId: ', {
-                    roomId,
-                    clientId: clientId.current
-                  });
                 } catch (error: any) {
                   console.error('设备加载错误:', error);
                   setError('加载媒体设备失败');
@@ -72,7 +69,7 @@ export default function Viewer() {
                 }
                 break;
 
-              case 'transport-had-been-Created':
+              case 'transportIsCreated':
                 try {
                   if (!deviceRef.current) {
                     throw new Error('Device not initialized');
@@ -84,10 +81,8 @@ export default function Viewer() {
                     iceCandidates: data.transportOptions.iceCandidates,
                     dtlsParameters: data.transportOptions.dtlsParameters,
                   });
-                  console.log('connect: ', 777777);
 
                   transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
-                    console.log('connect: ', 888888);
                     try {
                       ws.send(JSON.stringify({
                         type: 'connectTransport',
@@ -126,6 +121,14 @@ export default function Viewer() {
 
                   transportRef.current = transport;
 
+                  if (transportRef.current) {
+                    ws.send(JSON.stringify({
+                      type: 'getProducers',
+                      roomId,
+                      clientId: clientId.current
+                    }));
+                  }
+
                   addLog('传输初始化完成');
 
                 } catch (error: any) {
@@ -136,6 +139,7 @@ export default function Viewer() {
                 break;
 
               case 'transportConnected':
+                setViewers(data.viewers);
                 addLog('传输连接成功');
                 setInfo('传输已连接，等待媒体流...');
                 break;
@@ -183,7 +187,6 @@ export default function Viewer() {
 
               case 'consumer-created':
                 try {
-                  console.log('data: ', 88888888888, data);
                   const { id, producerId, kind, rtpParameters } = data;
                   addLog(`创建消费者: ${kind}`);
 
@@ -191,7 +194,8 @@ export default function Viewer() {
                     id,
                     producerId,
                     kind,
-                    rtpParameters
+                    rtpParameters,
+                    paused: false
                   });
 
                   addLog(`消费者创建成功: ${consumer.id}`);
@@ -203,7 +207,7 @@ export default function Viewer() {
                     if (videoRef.current) {
                       videoRef.current.srcObject = stream;
                       try {
-                        await videoRef.current.play();
+                        // await videoRef.current.play();
                         addLog('视频开始播放');
                         setIsViewing(true);
                         setInfo('');
@@ -229,12 +233,14 @@ export default function Viewer() {
                     addLog(`消费者轨道结束: ${consumer.id}`);
                     consumer.close();
                     consumersRef.current.delete(id);
+                    ws.send(JSON.stringify({type: 'removeViewer', roomId, clientId: clientId.current}));
                   });
 
                   consumer.on('transportclose', () => {
                     addLog(`消费者传输关闭: ${consumer.id}`);
                     consumer.close();
                     consumersRef.current.delete(id);
+                    ws.send(JSON.stringify({type: 'removeViewer', roomId, clientId: clientId.current}));
                   });
                 } catch (error: any) {
                   console.error('设置消费者错误:', error);
@@ -242,7 +248,28 @@ export default function Viewer() {
                   addLog(`设置消费者错误: ${error.message}`);
                 }
                 break;
+              case 'livestreamStopped':
+                {
+                  // 关闭所有 Consumers
+                  consumersRef.current.forEach((consumer, consumerId) => {
+                    consumer.close();
+                    consumersRef.current.delete(consumerId);
+                  });
 
+                  // 清空视频源
+                  if (videoRef.current) {
+                    videoRef.current.srcObject = null;
+                  }
+
+                  // 重置状态
+                  setIsViewing(false);
+                  setInfo('主播已结束直播');
+                  setError('');
+                }
+                break;
+              case 'viewerCount': 
+                setViewers(data.viewers);
+                break;
               case 'error':
                 console.error('服务器错误:', data.message);
                 setError(`服务器错误: ${data.message}`);
@@ -253,11 +280,13 @@ export default function Viewer() {
             console.error('处理消息错误:', error);
             setError('处理服务器消息失败');
             addLog(`处理消息错误: ${error.message}`);
+            ws.send(JSON.stringify({type: 'removeViewer', roomId, clientId: clientId.current}));
           }
         };
 
         ws.onerror = (error) => {
           if (!isMounted) return;
+          ws.send(JSON.stringify({type: 'removeViewer', roomId, clientId: clientId.current}));
           console.error('WebSocket错误:', error);
           setError('连接错误');
           addLog('WebSocket发生错误');
@@ -265,6 +294,7 @@ export default function Viewer() {
 
         ws.onclose = () => {
           if (!isMounted) return;
+          ws.send(JSON.stringify({type: 'removeViewer', roomId, clientId: clientId.current}));
           console.log('WebSocket已关闭');
           setIsConnected(false);
           setError('连接已关闭');
@@ -317,12 +347,13 @@ export default function Viewer() {
           {info}
         </div>
       )}
-      <div className="mb-4">
+      <div className="mb-4 flex justify-center">
+        <div>观看: {viewers}</div>
         <video
           ref={videoRef}
           autoPlay
           playsInline
-          className="w-full max-w-[640px] bg-black"
+          className="w-3/4 bg-black"
           style={{ border: '1px solid #ccc' }}
         />
       </div>

@@ -7,6 +7,7 @@ export default function Broadcaster() {
   const { roomId } = useParams();
   const [isConnected, setIsConnected] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [viewers, setViewers] = useState<number>(0);
   const [error, setError] = useState<string>('');
   const videoRef = useRef<HTMLVideoElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -49,7 +50,7 @@ export default function Broadcaster() {
               deviceRef.current = device;
 
               ws.send(JSON.stringify({
-                type: 'create-transport',
+                type: 'createTransport',
                 roomId,
                 clientId: clientId.current,
                 from: '主播端',
@@ -60,7 +61,7 @@ export default function Broadcaster() {
             }
             break;
 
-          case 'transport-had-been-Created':
+          case 'transportIsCreated':
             try {
               const transport = deviceRef.current!.createSendTransport({
                 id: data.transportOptions.id,
@@ -71,7 +72,7 @@ export default function Broadcaster() {
               console.log('connect: ', 666666);
               
               transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
-                console.log(1, '主播的webRTC通道连接成功: ');
+                console.log(7777, '主播的webRTC通道连接成功: ');
                 try {
                   ws.send(JSON.stringify({
                     type: 'connectTransport',
@@ -97,7 +98,7 @@ export default function Broadcaster() {
                   }));
                   console.log(2, '主播端开始推流了: ');
                   
-                  // 等待服务器返回 producerId
+                  // 等待服务器返回 producerId，不然无法完成 Producer 创建的最后一步
                   const onProducerCreated = (event: MessageEvent) => {
                     const response = JSON.parse(event.data);
                     if (response.type === 'producerCreated') {
@@ -119,8 +120,8 @@ export default function Broadcaster() {
               setError('Failed to create media transport');
             }
             break;
-
           case 'transportConnected':
+            setViewers(data.viewers);
             console.log('Transport connected successfully');
             break;
 
@@ -174,9 +175,9 @@ const startStreaming = async () => {
 
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        frameRate: { ideal: 30 }
+        width: { ideal: 1920 },   // 理想宽度
+        height: { ideal: 1080 },  // 理想高度
+        frameRate: { ideal: 30 }  // 理想帧率
       },
       audio: {
         noiseSuppression: true,   // 消除背景噪音
@@ -195,6 +196,7 @@ const startStreaming = async () => {
     }
 
     const transport = transportRef.current;
+
     if (!transport) {
       throw new Error('Transport not ready');
     }
@@ -202,17 +204,29 @@ const startStreaming = async () => {
     // 创建视频 Producer 并保存引用
     const videoTrack = stream.getVideoTracks()[0];
     const videoProducer = await transport.produce({
-      track: videoTrack,
-      encodings: [
-        { maxBitrate: 900000, scaleResolutionDownBy: 1 },
-        { maxBitrate: 300000, scaleResolutionDownBy: 2 },
-        { maxBitrate: 100000, scaleResolutionDownBy: 4 }
-      ],
-      codecOptions: {
-        videoGoogleStartBitrate: 1000
+      kind: 'video',
+      track: videoTrack,  // 媒体轨道
+      rtpParameters: {
+        codecs: [
+          {
+            mimeType: 'video/H264',
+            clockRate: 90000,
+            parameters: {
+              // 编码参数
+              'profile-level-id': '42e01f',
+              'x-google-start-bitrate': 1000
+            }
+          }
+        ],
+        encodings: [
+          {
+            rid: 'r0',
+            maxBitrate: 500000,
+            scaleResolutionDownBy: 1
+          }
+        ]
       }
     });
-
     // 设置视频生产者的事件监听
     videoProducer.on('transportclose', () => {
       console.log('Video producer transport closed');
@@ -258,6 +272,50 @@ const startStreaming = async () => {
   }
 };
 
+const stopStreaming = async () => {
+  try {
+    // 停止所有媒体轨道
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+
+    // 关闭视频和音频 Producers
+    const videoProducer = producersRef.current.get('video');
+    const audioProducer = producersRef.current.get('audio');
+
+    if (videoProducer) {
+      videoProducer.close();
+      producersRef.current.delete('video');
+    }
+
+    if (audioProducer) {
+      audioProducer.close();
+      producersRef.current.delete('audio');
+    }
+
+    // 清空视频播放
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    // 向服务器发送停止直播的消息
+    wsRef.current?.send(JSON.stringify({
+      type: 'stopStreaming',
+      roomId,
+      clientId: clientId.current
+    }));
+
+    // 重置状态
+    setIsStreaming(false);
+    setError('');
+  } catch (error) {
+    console.error('Error stopping stream:', error);
+    setError('停止直播失败');
+  }
+};
+
+
   return (
     <div className="p-4">
       <h1 className="text-2xl mb-4">主播端</h1>
@@ -266,22 +324,26 @@ const startStreaming = async () => {
           错误: {error}
         </div>
       )}
-      <div className="mb-4">
+      <div className="w-3/4 m-auto mb-4 flex justify-center relative">
+        <div className='absolute top-0 left-0 w-full pt-3 p-3 pl-5 pr-5'>
+          <span className='text-sm text-red-500 py-1 px-2 bg-slate-200 opacity-70'>正在直播</span>
+          <span className='text-sm text-blue-800 py-1 px-2 bg-orange-300 ml-3'>观看: {viewers}</span>
+        </div>
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted
-          className="w-full max-w-[640px] bg-black"
+          className="w-full bg-black"
         />
       </div>
       <div className="flex gap-4">
         <button
-          onClick={startStreaming}
-          disabled={!isConnected || isStreaming}
+          onClick={isStreaming ? stopStreaming : startStreaming}
+          disabled={!isConnected}
           className="px-4 py-2 bg-blue-500 text-white rounded disabled:bg-gray-400"
         >
-          {isStreaming ? '直播中' : '开始直播'}
+          {isStreaming ? '停止直播' : '开始直播'}
         </button>
       </div>
       <div className="mt-4 text-sm text-gray-600">

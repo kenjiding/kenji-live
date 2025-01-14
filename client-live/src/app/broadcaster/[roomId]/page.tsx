@@ -68,6 +68,7 @@ export default function Broadcaster() {
                 iceCandidates: data.transportOptions.iceCandidates,
                 dtlsParameters: data.transportOptions.dtlsParameters,
               });
+              console.log('connect: ', 666666);
               
               transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
                 console.log(1, '主播的webRTC通道连接成功: ');
@@ -177,7 +178,14 @@ const startStreaming = async () => {
         height: { ideal: 720 },
         frameRate: { ideal: 30 }
       },
-      audio: true
+      audio: {
+        noiseSuppression: true,   // 消除背景噪音
+        echoCancellation: true,   // 回声抑制
+        autoGainControl: true,    // 自动增益控制
+        sampleRate: 48000,        // 采样率（Hz）
+        sampleSize: 16,           // 采样精度（bits）
+        channelCount: 2,          // 声道数量（1 为单声道，2 为立体声）
+      }
     });
     
     streamRef.current = stream;

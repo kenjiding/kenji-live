@@ -15,7 +15,7 @@ node_modules/
 /rs-live/target
 
 # next.js
-/.next/
+.next/
 /out/
 
 # production

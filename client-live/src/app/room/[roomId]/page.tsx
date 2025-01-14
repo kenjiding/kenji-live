@@ -48,8 +48,6 @@ export default function Viewer() {
           if (!isMounted) return;
           try {
             const data = JSON.parse(event.data);
-            addLog(`收到消息: ${data.type}`);
-
             switch (data.type) {
               case 'routerRtpCapabilities':
                 try {
@@ -57,8 +55,6 @@ export default function Viewer() {
                   const device = new Device();
                   await device.load({ routerRtpCapabilities: data.rtpCapabilities });
                   deviceRef.current = device;
-                  addLog('设备加载完成');
-                  setInfo('设备已加载，正在加入房间...');
 
                   ws.send(JSON.stringify({
                     type: 'create-transport',
@@ -69,7 +65,6 @@ export default function Viewer() {
                     roomId,
                     clientId: clientId.current
                   });
-                  addLog('已发送加入房间请求');
                 } catch (error: any) {
                   console.error('设备加载错误:', error);
                   setError('加载媒体设备失败');
@@ -79,14 +74,9 @@ export default function Viewer() {
 
               case 'transport-had-been-Created':
                 try {
-                  addLog('正在创建传输...');
-                  setInfo('正在创建媒体传输...');
-
                   if (!deviceRef.current) {
                     throw new Error('Device not initialized');
                   }
-
-                  addLog(`收到传输选项: ${JSON.stringify(data.transportOptions)}`);
 
                   const transport = deviceRef.current.createRecvTransport({
                     id: data.transportOptions.id,
@@ -94,11 +84,10 @@ export default function Viewer() {
                     iceCandidates: data.transportOptions.iceCandidates,
                     dtlsParameters: data.transportOptions.dtlsParameters,
                   });
-
-                  addLog('传输对象创建成功，ID: ' + transport.id);
+                  console.log('connect: ', 777777);
 
                   transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
-                    addLog('传输 connect 事件触发');
+                    console.log('connect: ', 888888);
                     try {
                       ws.send(JSON.stringify({
                         type: 'connectTransport',
@@ -107,7 +96,7 @@ export default function Viewer() {
                         clientId: clientId.current,
                         roomId
                       }));
-                      addLog('已发送连接请求');
+                      addLog('room观看端已经connect完成, 已发送连接请求');
                       callback();
                     } catch (error) {
                       addLog('发送连接请求失败: ' + error);
@@ -136,6 +125,7 @@ export default function Viewer() {
                   });
 
                   transportRef.current = transport;
+
                   addLog('传输初始化完成');
 
                 } catch (error: any) {
@@ -171,11 +161,10 @@ export default function Viewer() {
                   }
 
                   for (const producer of data.producers) {
-                    addLog(`请求消费生产者: ${producer.id}`);
                     if (!deviceRef.current?.rtpCapabilities || !transportRef.current) {
                       throw new Error('设备或传输未就绪');
                     }
-
+                    addLog(`请求消费生产者: ${producer.id}`);
                     ws.send(JSON.stringify({
                       type: 'consume',
                       roomId,

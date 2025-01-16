@@ -3,6 +3,7 @@
 # dependencies
 node_modules/
 target/
+dist/
 /.pnp
 .pnp.*
 .yarn/*

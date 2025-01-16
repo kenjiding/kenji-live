@@ -69,10 +69,9 @@ export default function Broadcaster() {
                 iceCandidates: data.transportOptions.iceCandidates,
                 dtlsParameters: data.transportOptions.dtlsParameters,
               });
-              console.log('connect: ', 666666);
               
               transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
-                console.log(7777, '主播的webRTC通道连接成功: ');
+                console.log('主播的webRTC通道连接成功: ');
                 try {
                   ws.send(JSON.stringify({
                     type: 'connectTransport',
@@ -96,7 +95,6 @@ export default function Broadcaster() {
                     clientId: clientId.current,
                     roomId
                   }));
-                  console.log(2, '主播端开始推流了: ');
                   
                   // 等待服务器返回 producerId，不然无法完成 Producer 创建的最后一步
                   const onProducerCreated = (event: MessageEvent) => {
@@ -114,7 +112,6 @@ export default function Broadcaster() {
               });
 
               transportRef.current = transport;
-              console.log('transportRef: ', 444);
             } catch (error) {
               console.error('Error creating send transport:', error);
               setError('Failed to create media transport');

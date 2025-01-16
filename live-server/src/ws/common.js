@@ -61,9 +61,9 @@ function createCommonEvents({
     },
     'createTransport': async (socket, data) => {
       const router = await getOrCreateRouter(data.roomId, rooms);
-      const peer = createPeer(data.clientId, data.roomId, socket);
+      createPeer(data.clientId, data.roomId, socket);
 
-      // 创建传输
+      // 创建webRTC传输通道
       const transport = await createWebRtcTransport(router, data.clientId);
       console.log('Transport created for client:', data.clientId);
 
@@ -101,7 +101,6 @@ function createCommonEvents({
 
         // add viewer
         await addViewer(data.roomId, data.clientId);
-        console.log('addViewer: ', 7777777777);
 
         const viewers = await getViewerCount(data.roomId);
         socket.send(JSON.stringify({

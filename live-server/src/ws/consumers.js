@@ -45,7 +45,7 @@ function createConsumerEvents({
         peer.consumers.add(consumer.id);
         consumers.set(consumer.id, consumer);
         socket.send(JSON.stringify({
-          type: 'consumer-created',
+          type: 'consumerCreated',
           id: consumer.id,
           producerId: producer.id,
           kind: consumer.kind,

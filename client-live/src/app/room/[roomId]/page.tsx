@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Device } from 'mediasoup-client';
 import { useParams } from 'next/navigation';
+import { io, Socket } from 'socket.io-client';
 
 export default function Viewer() {
   const { roomId } = useParams();
@@ -17,7 +18,7 @@ export default function Viewer() {
   const [error, setError] = useState<string>('');
   const [info, setInfo] = useState<string>('');
   const videoRef = useRef<HTMLVideoElement>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const wsRef = useRef<Socket | null>(null);
   const deviceRef = useRef<Device | null>(null);
   const transportRef = useRef<any>(null);
   const consumersRef = useRef<Map<string, any>>(new Map());
@@ -35,23 +36,26 @@ export default function Viewer() {
 
     const connect = async () => {
       try {
-        const ws = new WebSocket('ws://localhost:3001');
+        const ws = io('http://localhost:3001', {
+          path: '/socket.io',
+          transports: ['websocket', 'polling']
+        });
+
         wsRef.current = ws;
 
-        ws.onopen = () => {
+        ws.on('connect', () => {
           if (!isMounted) return;
           changeConnectionInfo('websocket', '已连接');
           setInfo('正在加载媒体设备...');
-          ws.send(JSON.stringify({
-            type: 'getRouterRtpCapabilities',
+          ws.emit('getRouterRtpCapabilities', {
             roomId
-          }));
-        };
+          });
+        });
 
-        ws.onmessage = async (event) => {
+        ws.on('message', async (res) => {
           if (!isMounted) return;
           try {
-            const data = JSON.parse(event.data);
+            const data = JSON.parse(res);
             switch (data.type) {
               case 'routerRtpCapabilities':
                 try {
@@ -59,11 +63,10 @@ export default function Viewer() {
                   await device.load({ routerRtpCapabilities: data.rtpCapabilities });
                   deviceRef.current = device;
                   changeConnectionInfo('webRTC', '设备已加载');
-                  ws.send(JSON.stringify({
-                    type: 'createTransport',
+                  ws.emit('createTransport', {
                     roomId,
                     clientId: clientId.current
-                  }));
+                  });
                 } catch (error: any) {
                   console.error('设备加载错误:', error);
                   setError('加载媒体设备失败');
@@ -85,13 +88,12 @@ export default function Viewer() {
 
                   transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
                     try {
-                      ws.send(JSON.stringify({
-                        type: 'connectTransport',
+                      ws.emit('connectTransport', {
                         dtlsParameters,
                         transportId: transport.id,
                         clientId: clientId.current,
                         roomId
-                      }));
+                      });
                       callback();
                     } catch (error) {
                       errback(error as Error);
@@ -105,11 +107,10 @@ export default function Viewer() {
                         break;
                       case 'connected':
                         changeConnectionInfo('webRTC', '连接已建立，正在获取媒体流...');
-                        ws.send(JSON.stringify({
-                          type: 'getProducers',
+                        ws.emit('getProducers', {
                           roomId,
                           clientId: clientId.current
-                        }));
+                        });
                         break;
                       case 'failed':
                         changeConnectionInfo('webRTC', '连接失败');
@@ -121,11 +122,10 @@ export default function Viewer() {
                   transportRef.current = transport;
 
                   if (transportRef.current) {
-                    ws.send(JSON.stringify({
-                      type: 'getProducers',
+                    ws.emit('getProducers', {
                       roomId,
                       clientId: clientId.current
-                    }));
+                    });
                   }
 
                 } catch (error: any) {
@@ -140,11 +140,10 @@ export default function Viewer() {
 
               case 'newProducer':
                 if (transportRef.current) {
-                  ws.send(JSON.stringify({
-                    type: 'getProducers',
+                  ws.emit('getProducers', {
                     roomId,
                     clientId: clientId.current
-                  }));
+                  });
                 }
                 break;
 
@@ -159,14 +158,13 @@ export default function Viewer() {
                     if (!deviceRef.current?.rtpCapabilities || !transportRef.current) {
                       throw new Error('设备或传输未就绪');
                     }
-                    ws.send(JSON.stringify({
-                      type: 'consume',
+                    ws.emit('consume', {
                       roomId,
                       producerId: producer.id,
                       rtpCapabilities: deviceRef.current.rtpCapabilities,
                       transportId: transportRef.current.id,
                       clientId: clientId.current
-                    }));
+                    });
                   }
                 } catch (error: any) {
                   console.error('处理生产者错误:', error);
@@ -213,14 +211,14 @@ export default function Viewer() {
                   consumer.on('trackended', () => {
                     consumer.close();
                     consumersRef.current.delete(id);
-                    ws.send(JSON.stringify({type: 'removeViewer', roomId, clientId: clientId.current}));
+                    ws.emit('removeViewer', {type: 'removeViewer', roomId, clientId: clientId.current});
                   });
 
                   consumer.on('transportclose', () => {
                     changeConnectionInfo('webRTC', '消费者传输关闭');
                     consumer.close();
                     consumersRef.current.delete(id);
-                    ws.send(JSON.stringify({type: 'removeViewer', roomId, clientId: clientId.current}));
+                    ws.emit('removeViewer', {type: 'removeViewer', roomId, clientId: clientId.current});
                   });
                 } catch (error: any) {
                   console.error('设置消费者错误:', error);
@@ -251,22 +249,22 @@ export default function Viewer() {
             }
           } catch (error: any) {
             console.error('处理消息错误:', error);
-            ws.send(JSON.stringify({type: 'removeViewer', roomId, clientId: clientId.current}));
+            ws.emit('removeViewer', {type: 'removeViewer', roomId, clientId: clientId.current});
           }
-        };
+        });
 
-        ws.onerror = (error) => {
+        ws.on('connect_error', (error) => {
           if (!isMounted) return;
-          ws.send(JSON.stringify({type: 'removeViewer', roomId, clientId: clientId.current}));
+          ws.emit('removeViewer', {type: 'removeViewer', roomId, clientId: clientId.current});
           console.error('WebSocket错误:', error);
-        };
+        });
 
-        ws.onclose = () => {
+        ws.on('disconnect', (reason) => {
           if (!isMounted) return;
-          ws.send(JSON.stringify({type: 'removeViewer', roomId, clientId: clientId.current}));
+          ws.emit('removeViewer', {type: 'removeViewer', roomId, clientId: clientId.current});
           console.log('WebSocket已关闭');
           changeConnectionInfo('websocket', '连接已关闭');
-        };
+        });
       } catch (error: any) {
         if (!isMounted) return;
         console.error('连接错误:', error);

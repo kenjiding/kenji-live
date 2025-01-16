@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Device } from 'mediasoup-client';
 import { useParams } from 'next/navigation';
+import { io, Socket } from 'socket.io-client';
 
 export default function Broadcaster() {
   const { roomId } = useParams();
@@ -10,7 +11,7 @@ export default function Broadcaster() {
   const [viewers, setViewers] = useState<number>(0);
   const [error, setError] = useState<string>('');
   const videoRef = useRef<HTMLVideoElement>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const wsRef = useRef<Socket | null>(null);
   const deviceRef = useRef<Device | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const transportRef = useRef<any>(null);
@@ -18,22 +19,24 @@ export default function Broadcaster() {
   const clientId = useRef<string>(`broadcaster-${Date.now()}`);
 
   useEffect(() => {
-    const ws = new WebSocket('ws://localhost:3001');
+    const ws = io('http://localhost:3001', {
+      path: '/socket.io',
+      transports: ['websocket', 'polling']
+    });
     wsRef.current = ws;
 
-    ws.onopen = () => {
+    ws.on('connect', () => {
       console.log('WebSocket connected');
       setIsConnected(true);
       
-      ws.send(JSON.stringify({
-        type: 'createRoom',
+      ws.emit('createRoom', {
         roomId
-      }));
-    };
+      });
+    });
 
-    ws.onmessage = async (event) => {
+    ws.on('message', async (res) => {
       try {
-        const data = JSON.parse(event.data);
+        const data = JSON.parse(res);
         console.log('Received message:', data);
         
         switch (data.type) {
@@ -49,12 +52,11 @@ export default function Broadcaster() {
               await device.load({ routerRtpCapabilities: data.routerRtpCapabilities });
               deviceRef.current = device;
 
-              ws.send(JSON.stringify({
-                type: 'createTransport',
+              ws.emit('createTransport', {
                 roomId,
                 clientId: clientId.current,
                 from: '主播端',
-              }));
+              });
             } catch (error) {
               console.error('Error loading device:', error);
               setError('Failed to load media device');
@@ -73,12 +75,11 @@ export default function Broadcaster() {
               transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
                 console.log('主播的webRTC通道连接成功: ');
                 try {
-                  ws.send(JSON.stringify({
-                    type: 'connectTransport',
+                  ws.emit('connectTransport', {
                     dtlsParameters,
                     transportId: transport.id,
                     clientId: clientId.current
-                  }));
+                  });
                   callback();
                 } catch (error) {
                   errback(error as Error);
@@ -87,25 +88,25 @@ export default function Broadcaster() {
 
               transport.on('produce', async (parameters: any, callback, errback) => {
                 try {
-                  ws.send(JSON.stringify({
+                  ws.emit('produce', {
                     type: 'produce',
                     kind: parameters.kind,
                     rtpParameters: parameters.rtpParameters,
                     transportId: transport.id,
                     clientId: clientId.current,
                     roomId
-                  }));
+                  });
                   
                   // 等待服务器返回 producerId，不然无法完成 Producer 创建的最后一步
-                  const onProducerCreated = (event: MessageEvent) => {
-                    const response = JSON.parse(event.data);
+                  const onProducerCreated = (res: string) => {
+                    const response = JSON.parse(res);
                     if (response.type === 'producerCreated') {
-                      ws.removeEventListener('message', onProducerCreated);
+                      ws.off('message', onProducerCreated);
                       callback({ id: response.producerId });
                     }
                   };
                   
-                  ws.addEventListener('message', onProducerCreated);
+                  ws.on('message', onProducerCreated);
                 } catch (error) {
                   errback(error as Error);
                 }
@@ -135,18 +136,18 @@ export default function Broadcaster() {
         console.error('Error processing message:', error);
         setError('Failed to process server message');
       }
-    };
+    });
 
-    ws.onerror = (error) => {
+    ws.on('connect_error', (error) => {
       console.error('WebSocket error:', error);
       setError('Connection error');
-    };
+    });
 
-    ws.onclose = () => {
+    ws.on('disconnect', (reason) => {
       console.log('WebSocket disconnected');
       setIsConnected(false);
       setError('Connection closed');
-    };
+    });
 
     return () => {
       producersRef.current.forEach(producer => {
@@ -158,7 +159,7 @@ export default function Broadcaster() {
         transportRef.current.close();
       }
       if (wsRef.current) {
-        wsRef.current.close();
+        wsRef.current.disconnect();
       }
     };
   }, []);
@@ -297,11 +298,10 @@ const stopStreaming = async () => {
     }
 
     // 向服务器发送停止直播的消息
-    wsRef.current?.send(JSON.stringify({
-      type: 'stopStreaming',
+    wsRef.current?.emit('stopStreaming', {
       roomId,
       clientId: clientId.current
-    }));
+    });
 
     // 重置状态
     setIsStreaming(false);

@@ -30,12 +30,12 @@ export default function Broadcaster() {
       'connect': () => {
         console.log('WebSocket connected');
         setIsConnected(true);
-        
+
         ws.emit('createRoom', {
           roomId
         });
       },
-      'roomCreated': async (data: {routerRtpCapabilities: RtpCapabilities}) => {
+      'roomCreated': async (data: { routerRtpCapabilities: RtpCapabilities }) => {
         if (!data.routerRtpCapabilities) {
           console.error('No router RTP capabilities received');
           return;
@@ -90,13 +90,13 @@ export default function Broadcaster() {
                 clientId: clientId.current,
                 roomId
               });
-              
+
               // 等待服务器返回 producerId，不然无法完成 Producer 创建的最后一步
               const onProducerCreated = (res: any) => {
                 ws.off('producerCreated', onProducerCreated);
                 callback({ id: res.producerId });
               };
-              
+
               ws.on('producerCreated', onProducerCreated);
             } catch (error) {
               errback(error as Error);
@@ -107,7 +107,7 @@ export default function Broadcaster() {
           setError('Failed to create media transport');
         }
       },
-      'transportConnected': async (data: {viewers: number}) => {
+      'transportConnected': async (data: { viewers: number }) => {
         setViewers(data.viewers);
         console.log('Transport connected successfully');
       },
@@ -154,160 +154,159 @@ export default function Broadcaster() {
   }, []);
 
 
-const startStreaming = async () => {
-  try {
-    if (!deviceRef.current?.canProduce('video')) {
-      throw new Error('Cannot produce video');
-    }
-    if (!deviceRef.current?.loaded) {
-      throw new Error('Device not loaded');
-    }
-
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        width: { ideal: 1920 },   // 理想宽度
-        height: { ideal: 1080 },  // 理想高度
-        frameRate: { ideal: 30 }  // 理想帧率
-      },
-      audio: {
-        noiseSuppression: true,   // 消除背景噪音
-        echoCancellation: true,   // 回声抑制
-        autoGainControl: true,    // 自动增益控制
-        sampleRate: 48000,        // 采样率（Hz）
-        sampleSize: 16,           // 采样精度（bits）
-        channelCount: 2,          // 声道数量（1 为单声道，2 为立体声）
+  const startStreaming = async () => {
+    try {
+      if (!deviceRef.current?.canProduce('video')) {
+        throw new Error('Cannot produce video');
       }
-    });
-  
-    streamRef.current = stream;
-    
-    if (videoRef.current) {
-      videoRef.current.srcObject = stream;
-    }
+      if (!deviceRef.current?.loaded) {
+        throw new Error('Device not loaded');
+      }
 
-    const transport = transportRef.current;
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 1920 },   // 理想宽度
+          height: { ideal: 1080 },  // 理想高度
+          frameRate: { ideal: 30 }  // 理想帧率
+        },
+        audio: {
+          noiseSuppression: true,   // 消除背景噪音
+          echoCancellation: true,   // 回声抑制
+          autoGainControl: true,    // 自动增益控制
+          sampleRate: 48000,        // 采样率（Hz）
+          sampleSize: 16,           // 采样精度（bits）
+          channelCount: 2,          // 声道数量（1 为单声道，2 为立体声）
+        }
+      });
 
-    if (!transport) {
-      throw new Error('Transport not ready');
-    }
+      streamRef.current = stream;
 
-    // 创建视频 Producer 并保存引用
-    const videoTrack = stream.getVideoTracks()[0];
-    const videoProducer = await transport.produce({
-      kind: 'video',
-      track: videoTrack,  // 媒体轨道
-      rtpParameters: {
-        codecs: [
-          {
-            mimeType: 'video/H264',
-            clockRate: 90000,
-            parameters: {
-              // 编码参数
-              'profile-level-id': '42e01f',
-              'x-google-start-bitrate': 1000
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+
+      const transport = transportRef.current;
+
+      if (!transport) {
+        throw new Error('Transport not ready');
+      }
+
+      // 创建视频 Producer 并保存引用
+      const videoTrack = stream.getVideoTracks()[0];
+      const videoProducer = await transport.produce({
+        kind: 'video',
+        track: videoTrack,  // 媒体轨道
+        rtpParameters: {
+          codecs: [
+            {
+              mimeType: 'video/H264',
+              clockRate: 90000,
+              parameters: {
+                // 编码参数
+                'profile-level-id': '42e01f',
+                'x-google-start-bitrate': 1000
+              }
             }
-          }
-        ],
-        encodings: [
-          {
-            rid: 'r0',
-            maxBitrate: 500000,
-            scaleResolutionDownBy: 1
-          }
-        ]
+          ],
+          encodings: [
+            {
+              rid: 'r0',
+              maxBitrate: 500000,
+              scaleResolutionDownBy: 1
+            }
+          ]
+        }
+      });
+
+      // 设置视频生产者的事件监听
+      videoProducer.on('transportclose', () => {
+        console.log('Video producer transport closed');
+        videoProducer.close();
+      });
+
+      videoProducer.on('trackended', () => {
+        console.log('Video track ended');
+        videoProducer.close();
+      });
+
+      // 创建音频 Producer 并保存引用
+      const audioTrack = stream.getAudioTracks()[0];
+      const audioProducer = await transport.produce({
+        track: audioTrack,
+        codecOptions: {
+          opusStereo: 1,
+          opusDtx: 1,
+          opusFec: 1,
+          opusMaxPlaybackRate: 48000
+        }
+      });
+
+      // 设置音频生产者的事件监听
+      audioProducer.on('transportclose', () => {
+        console.log('Audio producer transport closed');
+        audioProducer.close();
+      });
+
+      audioProducer.on('trackended', () => {
+        console.log('Audio track ended');
+        audioProducer.close();
+      });
+
+      // 保存生产者引用
+      producersRef.current.set('video', videoProducer);
+      producersRef.current.set('audio', audioProducer);
+
+      setIsStreaming(true);
+    } catch (error: any) {
+      console.error('Error starting stream:', error);
+      setError(error.message);
+    }
+  };
+
+  const stopStreaming = async () => {
+    try {
+      // 停止所有媒体轨道
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
       }
-    });
 
-    // 设置视频生产者的事件监听
-    videoProducer.on('transportclose', () => {
-      console.log('Video producer transport closed');
-      videoProducer.close();
-    });
+      // 关闭视频和音频 Producers
+      const videoProducer = producersRef.current.get('video');
+      const audioProducer = producersRef.current.get('audio');
 
-    videoProducer.on('trackended', () => {
-      console.log('Video track ended');
-      videoProducer.close();
-    });
-    
-    // 创建音频 Producer 并保存引用
-    const audioTrack = stream.getAudioTracks()[0];
-    const audioProducer = await transport.produce({
-      track: audioTrack,
-      codecOptions: {
-        opusStereo: 1,
-        opusDtx: 1,
-        opusFec: 1,
-        opusMaxPlaybackRate: 48000
+      if (videoProducer) {
+        videoProducer.close();
+        producersRef.current.delete('video');
       }
-    });
 
-    // 设置音频生产者的事件监听
-    audioProducer.on('transportclose', () => {
-      console.log('Audio producer transport closed');
-      audioProducer.close();
-    });
+      if (audioProducer) {
+        audioProducer.close();
+        producersRef.current.delete('audio');
+      }
 
-    audioProducer.on('trackended', () => {
-      console.log('Audio track ended');
-      audioProducer.close();
-    });
+      // 清空视频播放
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
 
-    // 保存生产者引用
-    producersRef.current.set('video', videoProducer);
-    producersRef.current.set('audio', audioProducer);
+      // 向服务器发送停止直播的消息
+      wsRef.current?.emit('stopStreaming', {
+        roomId,
+        clientId: clientId.current
+      });
 
-    setIsStreaming(true);
-  } catch (error: any) {
-    console.error('Error starting stream:', error);
-    setError(error.message);
-  }
-};
-
-const stopStreaming = async () => {
-  try {
-    // 停止所有媒体轨道
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
+      // 重置状态
+      setIsStreaming(false);
+      setError('');
+    } catch (error) {
+      console.error('Error stopping stream:', error);
+      setError('停止直播失败');
     }
-
-    // 关闭视频和音频 Producers
-    const videoProducer = producersRef.current.get('video');
-    const audioProducer = producersRef.current.get('audio');
-
-    if (videoProducer) {
-      videoProducer.close();
-      producersRef.current.delete('video');
-    }
-
-    if (audioProducer) {
-      audioProducer.close();
-      producersRef.current.delete('audio');
-    }
-
-    // 清空视频播放
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-
-    // 向服务器发送停止直播的消息
-    wsRef.current?.emit('stopStreaming', {
-      roomId,
-      clientId: clientId.current
-    });
-
-    // 重置状态
-    setIsStreaming(false);
-    setError('');
-  } catch (error) {
-    console.error('Error stopping stream:', error);
-    setError('停止直播失败');
-  }
-};
-
+  };
 
   return (
-    <div className="p-4">
+    <div className="p-10">
       <h1 className="text-2xl mb-4">主播端</h1>
       {error && (
         <div className="mb-4 p-4 bg-red-100 text-red-700 rounded">
@@ -316,7 +315,7 @@ const stopStreaming = async () => {
       )}
       <div className="w-3/4 m-auto mb-4 flex justify-center relative">
         <div className='absolute top-0 left-0 w-full pt-3 p-3 pl-5 pr-5'>
-          <span className='text-sm text-red-500 py-1 px-2 bg-slate-200 opacity-70'>正在直播</span>
+          <span className='text-sm text-red-500 py-1 px-2 bg-slate-200 opacity-70'>{ isStreaming ? '正在直播' : '未开播'}</span>
           <span className='text-sm text-blue-800 py-1 px-2 bg-orange-300 ml-3'>观看: {viewers}</span>
         </div>
         <video
@@ -327,17 +326,19 @@ const stopStreaming = async () => {
           className="w-full bg-black"
         />
       </div>
-      <div className="flex gap-4">
-        <button
-          onClick={isStreaming ? stopStreaming : startStreaming}
-          disabled={!isConnected}
-          className="px-4 py-2 bg-blue-500 text-white rounded disabled:bg-gray-400"
-        >
-          {isStreaming ? '停止直播' : '开始直播'}
-        </button>
-      </div>
-      <div className="mt-4 text-sm text-gray-600">
-        连接状态: {isConnected ? '已连接' : '未连接'}
+      <div className="flex gap-4 p-10">
+        <div className="mt-4 text-sm text-gray-600">
+          连接状态: {isConnected ? '已连接' : '未连接'}
+        </div>
+        <div>
+          <button
+            onClick={isStreaming ? stopStreaming : startStreaming}
+            disabled={!isConnected}
+            className="px-4 py-2 bg-blue-500 text-white rounded disabled:bg-gray-400"
+          >
+            {isStreaming ? '停止直播' : '开始直播'}
+          </button>
+        </div>
       </div>
     </div>
   );

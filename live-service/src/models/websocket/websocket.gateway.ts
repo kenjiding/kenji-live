@@ -64,18 +64,6 @@ export class WebsocketGateway
 
   async handleConnection(@ConnectedSocket() client: Socket) {
     this.logger.log(`客户端连接成功: ${client.id}`);
-    // this.logger.log(`当前连接数: ${this.server.engine.clientsCount}`);
-
-    // 发送初始配置
-    client.emit('connection-success', {
-      socketId: client.id,
-      existingProducers: Array.from(this.producers.values()).map((producer) => {
-        return {
-          id: producer.id,
-          kind: producer.kind,
-        };
-      }),
-    });
   }
 
   createPeer(clientId, roomId, socket) {
@@ -217,6 +205,8 @@ export class WebsocketGateway
           role: data.dtlsParameters.role || 'auto',
         },
       });
+
+    this.logger.log(`transport连接成功`);
 
       // await addViewer(data.roomId, data.clientId);
       // const viewers = await getViewerCount(data.roomId);

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Device } from 'mediasoup-client';
 import { useParams } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
+import { RtpCapabilities, TransportOptions, RtpParameters } from 'mediasoup-client/lib/types';
 
 export default function Viewer() {
   const { roomId } = useParams();
@@ -32,249 +33,236 @@ export default function Viewer() {
   }
 
   useEffect(() => {
-    let isMounted = true;
+    const ws = io('http://localhost:3001', {
+      path: '/socket.io',
+      transports: ['websocket', 'polling']
+    });
 
-    const connect = async () => {
-      try {
-        const ws = io('http://localhost:3001', {
-          path: '/socket.io',
-          transports: ['websocket', 'polling']
+    wsRef.current = ws;
+
+    const events = {
+      'connect': () => {
+        changeConnectionInfo('websocket', '已连接');
+        setInfo('正在加载媒体设备...');
+        ws.emit('getRouterRtpCapabilities', {
+          roomId
         });
-
-        wsRef.current = ws;
-
-        ws.on('connect', () => {
-          if (!isMounted) return;
-          changeConnectionInfo('websocket', '已连接');
-          setInfo('正在加载媒体设备...');
-          ws.emit('getRouterRtpCapabilities', {
-            roomId
+      },
+      'routerRtpCapabilities': async (data: { rtpCapabilities: RtpCapabilities }) => {
+        try {
+          const device = new Device();
+          await device.load({ routerRtpCapabilities: data.rtpCapabilities });
+          deviceRef.current = device;
+          changeConnectionInfo('webRTC', '设备已加载');
+          ws.emit('createTransport', {
+            roomId,
+            clientId: clientId.current
           });
-        });
+        } catch (error: any) {
+          console.error('设备加载错误:', error);
+          setError('加载媒体设备失败');
+        }
+      },
+      'transportIsCreated': async (data: {
+        transportOptions: TransportOptions
+      }) => {
+        try {
+          if (!deviceRef.current) {
+            throw new Error('Device not initialized');
+          }
 
-        ws.on('message', async (res) => {
-          if (!isMounted) return;
-          try {
-            const data = JSON.parse(res);
-            switch (data.type) {
-              case 'routerRtpCapabilities':
-                try {
-                  const device = new Device();
-                  await device.load({ routerRtpCapabilities: data.rtpCapabilities });
-                  deviceRef.current = device;
-                  changeConnectionInfo('webRTC', '设备已加载');
-                  ws.emit('createTransport', {
-                    roomId,
-                    clientId: clientId.current
-                  });
-                } catch (error: any) {
-                  console.error('设备加载错误:', error);
-                  setError('加载媒体设备失败');
-                }
+          const transport = deviceRef.current.createRecvTransport({
+            id: data.transportOptions.id,
+            iceParameters: data.transportOptions.iceParameters,
+            iceCandidates: data.transportOptions.iceCandidates,
+            dtlsParameters: data.transportOptions.dtlsParameters,
+          });
+
+          transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
+            try {
+              ws.emit('connectTransport', {
+                dtlsParameters,
+                transportId: transport.id,
+                clientId: clientId.current,
+                roomId
+              });
+              callback();
+            } catch (error) {
+              errback(error as Error);
+            }
+          });
+
+          transport.on('connectionstatechange', (state) => {
+            switch (state) {
+              case 'connecting':
+                changeConnectionInfo('webRTC', '正在建立连接...');
                 break;
-
-              case 'transportIsCreated':
-                try {
-                  if (!deviceRef.current) {
-                    throw new Error('Device not initialized');
-                  }
-
-                  const transport = deviceRef.current.createRecvTransport({
-                    id: data.transportOptions.id,
-                    iceParameters: data.transportOptions.iceParameters,
-                    iceCandidates: data.transportOptions.iceCandidates,
-                    dtlsParameters: data.transportOptions.dtlsParameters,
-                  });
-
-                  transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
-                    try {
-                      ws.emit('connectTransport', {
-                        dtlsParameters,
-                        transportId: transport.id,
-                        clientId: clientId.current,
-                        roomId
-                      });
-                      callback();
-                    } catch (error) {
-                      errback(error as Error);
-                    }
-                  });
-
-                  transport.on('connectionstatechange', (state) => {
-                    switch (state) {
-                      case 'connecting':
-                        changeConnectionInfo('webRTC', '正在建立连接...');
-                        break;
-                      case 'connected':
-                        changeConnectionInfo('webRTC', '连接已建立，正在获取媒体流...');
-                        ws.emit('getProducers', {
-                          roomId,
-                          clientId: clientId.current
-                        });
-                        break;
-                      case 'failed':
-                        changeConnectionInfo('webRTC', '连接失败');
-                        console.error('webrtc连接失败');
-                        break;
-                    }
-                  });
-
-                  transportRef.current = transport;
-
-                  if (transportRef.current) {
-                    ws.emit('getProducers', {
-                      roomId,
-                      clientId: clientId.current
-                    });
-                  }
-
-                } catch (error: any) {
-                  console.error('创建传输错误:', error);
-                }
+              case 'connected':
+                changeConnectionInfo('webRTC', '连接已建立，正在获取媒体流...');
+                ws.emit('getProducers', {
+                  roomId,
+                  clientId: clientId.current
+                });
                 break;
-
-              case 'transportConnected':
-                setViewers(data.viewers);
-                changeConnectionInfo('webRTC', '传输已连接, 等待媒体流...');
-                break;
-
-              case 'newProducer':
-                if (transportRef.current) {
-                  ws.emit('getProducers', {
-                    roomId,
-                    clientId: clientId.current
-                  });
-                }
-                break;
-
-              case 'producers':
-                try {
-                  if (!data.producers || data.producers.length === 0) {
-                    setInfo('当前没有可用的媒体流');
-                    return;
-                  }
-
-                  for (const producer of data.producers) {
-                    if (!deviceRef.current?.rtpCapabilities || !transportRef.current) {
-                      throw new Error('设备或传输未就绪');
-                    }
-                    ws.emit('consume', {
-                      roomId,
-                      producerId: producer.id,
-                      rtpCapabilities: deviceRef.current.rtpCapabilities,
-                      transportId: transportRef.current.id,
-                      clientId: clientId.current
-                    });
-                  }
-                } catch (error: any) {
-                  console.error('处理生产者错误:', error);
-                }
-                break;
-
-              case 'consumerCreated':
-                try {
-                  const { id, producerId, kind, rtpParameters } = data;
-
-                  const consumer = await transportRef.current?.consume({
-                    id,
-                    producerId,
-                    kind,
-                    rtpParameters,
-                    paused: false
-                  });
-                  changeConnectionInfo('webRTC', '消费者创建成功');
-                  consumersRef.current.set(id, consumer);
-
-                  if (kind === 'video') {
-                    const stream = new MediaStream([consumer.track]);
-                    if (videoRef.current) {
-                      videoRef.current.srcObject = stream;
-                      try {
-                        // await videoRef.current.play();
-                        setInfo('');
-                      } catch (error: any) {
-                        console.error('视频播放错误:', error);
-                      }
-                    }
-                  } else if (kind === 'audio') {
-                    const stream = videoRef.current?.srcObject as MediaStream;
-                    if (stream) {
-                      stream.addTrack(consumer.track);
-                    } else {
-                      const newStream = new MediaStream([consumer.track]);
-                      if (videoRef.current) {
-                        videoRef.current.srcObject = newStream;
-                      }
-                    }
-                  }
-
-                  consumer.on('trackended', () => {
-                    consumer.close();
-                    consumersRef.current.delete(id);
-                    ws.emit('removeViewer', {type: 'removeViewer', roomId, clientId: clientId.current});
-                  });
-
-                  consumer.on('transportclose', () => {
-                    changeConnectionInfo('webRTC', '消费者传输关闭');
-                    consumer.close();
-                    consumersRef.current.delete(id);
-                    ws.emit('removeViewer', {type: 'removeViewer', roomId, clientId: clientId.current});
-                  });
-                } catch (error: any) {
-                  console.error('设置消费者错误:', error);
-                }
-                break;
-              case 'livestreamStopped':
-                {
-                  // 关闭所有 Consumers
-                  consumersRef.current.forEach((consumer, consumerId) => {
-                    consumer.close();
-                    consumersRef.current.delete(consumerId);
-                  });
-
-                  // 清空视频源
-                  if (videoRef.current) {
-                    videoRef.current.srcObject = null;
-                  }
-                  changeConnectionInfo('webRTC', '连接已关闭');
-                  setInfo('主播已结束直播');
-                }
-                break;
-              case 'viewerCount': 
-                setViewers(data.viewers);
-                break;
-              case 'error':
-                console.error('服务器错误:', data.message);
+              case 'failed':
+                changeConnectionInfo('webRTC', '连接失败');
+                console.error('webrtc连接失败');
                 break;
             }
-          } catch (error: any) {
-            console.error('处理消息错误:', error);
-            ws.emit('removeViewer', {type: 'removeViewer', roomId, clientId: clientId.current});
+          });
+
+          transportRef.current = transport;
+
+          if (transportRef.current) {
+            ws.emit('getProducers', {
+              roomId,
+              clientId: clientId.current
+            });
           }
+
+        } catch (error: any) {
+          console.error('创建传输错误:', error);
+        }
+      },
+      'transportConnected': async (data: {
+        viewers: number
+      }) => {
+        setViewers(data.viewers);
+        changeConnectionInfo('webRTC', '传输已连接, 等待媒体流...');
+      },
+      'newProducer': async () => {
+        if (transportRef.current) {
+          ws.emit('getProducers', {
+            roomId,
+            clientId: clientId.current
+          });
+        }
+      },
+      'producers': async (data: {
+        producers: any
+      }) => {
+        try {
+          if (!data.producers || data.producers.length === 0) {
+            setInfo('当前没有可用的媒体流');
+            return;
+          }
+
+          for (const producer of data.producers) {
+            if (!deviceRef.current?.rtpCapabilities || !transportRef.current) {
+              throw new Error('设备或传输未就绪');
+            }
+            ws.emit('consume', {
+              roomId,
+              producerId: producer.id,
+              rtpCapabilities: deviceRef.current.rtpCapabilities,
+              transportId: transportRef.current.id,
+              clientId: clientId.current
+            });
+          }
+        } catch (error: any) {
+          console.error('处理生产者错误:', error);
+        }
+      },
+      'consumerCreated': async (data: {
+        id: string,
+        producerId: string,
+        kind: string,
+        rtpParameters: RtpParameters
+      }) => {
+        try {
+          const { id, producerId, kind, rtpParameters } = data;
+
+          const consumer = await transportRef.current?.consume({
+            id,
+            producerId,
+            kind,
+            rtpParameters,
+            paused: false
+          });
+          changeConnectionInfo('webRTC', '消费者创建成功');
+          consumersRef.current.set(id, consumer);
+
+          if (kind === 'video') {
+            const stream = new MediaStream([consumer.track]);
+            if (videoRef.current) {
+              videoRef.current.srcObject = stream;
+              try {
+                // await videoRef.current.play();
+                setInfo('');
+              } catch (error: any) {
+                console.error('视频播放错误:', error);
+              }
+            }
+          } else if (kind === 'audio') {
+            const stream = videoRef.current?.srcObject as MediaStream;
+            if (stream) {
+              stream.addTrack(consumer.track);
+            } else {
+              const newStream = new MediaStream([consumer.track]);
+              if (videoRef.current) {
+                videoRef.current.srcObject = newStream;
+              }
+            }
+          }
+
+          consumer.on('trackended', () => {
+            consumer.close();
+            consumersRef.current.delete(id);
+            ws.emit('removeViewer', { type: 'removeViewer', roomId, clientId: clientId.current });
+          });
+
+          consumer.on('transportclose', () => {
+            changeConnectionInfo('webRTC', '消费者传输关闭');
+            consumer.close();
+            consumersRef.current.delete(id);
+            ws.emit('removeViewer', { type: 'removeViewer', roomId, clientId: clientId.current });
+          });
+        } catch (error: any) {
+          console.error('设置消费者错误:', error);
+        }
+      },
+      'livestreamStopped': async () => {
+        // 关闭所有 Consumers
+        consumersRef.current.forEach((consumer, consumerId) => {
+          consumer.close();
+          consumersRef.current.delete(consumerId);
         });
 
-        ws.on('connect_error', (error) => {
-          if (!isMounted) return;
-          ws.emit('removeViewer', {type: 'removeViewer', roomId, clientId: clientId.current});
-          console.error('WebSocket错误:', error);
-        });
-
-        ws.on('disconnect', (reason) => {
-          if (!isMounted) return;
-          ws.emit('removeViewer', {type: 'removeViewer', roomId, clientId: clientId.current});
-          console.log('WebSocket已关闭');
-          changeConnectionInfo('websocket', '连接已关闭');
-        });
-      } catch (error: any) {
-        if (!isMounted) return;
-        console.error('连接错误:', error);
+        // 清空视频源
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
+        }
+        changeConnectionInfo('webRTC', '连接已关闭');
+        setInfo('主播已结束直播');
+      },
+      'viewerCount': async (data: { viewers: number }) => {
+        setViewers(data.viewers);
+      },
+      'error': async (data: { message: string }) => {
+        console.error('服务器错误:', data.message);
+      },
+      'connect_error': (error: Error) => {
+        ws.emit('removeViewer', { type: 'removeViewer', roomId, clientId: clientId.current });
+        console.error('WebSocket错误:', error);
+      },
+      'disconnect': () => {
+        ws.emit('removeViewer', { type: 'removeViewer', roomId, clientId: clientId.current });
+        console.log('WebSocket已关闭');
+        changeConnectionInfo('websocket', '连接已关闭');
       }
     };
 
-    connect();
+    // on events
+    Object.entries(events).forEach(([event, handler]) => {
+      ws.on(event, handler);
+    });
 
     return () => {
-      isMounted = false;
+      // off events
+      Object.entries(events).forEach(([event, handler]) => {
+        ws.off(event, handler);
+      });
+
       consumersRef.current.forEach(consumer => {
         if (consumer) {
           consumer.close();

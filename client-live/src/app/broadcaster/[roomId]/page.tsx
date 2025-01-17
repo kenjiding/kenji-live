@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Device } from 'mediasoup-client';
 import { useParams } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
+import { RtpCapabilities, TransportOptions } from 'mediasoup-client/lib/types';
 
 export default function Broadcaster() {
   const { roomId } = useParams();
@@ -25,131 +26,119 @@ export default function Broadcaster() {
     });
     wsRef.current = ws;
 
-    ws.on('connect', () => {
-      console.log('WebSocket connected');
-      setIsConnected(true);
-      
-      ws.emit('createRoom', {
-        roomId
-      });
-    });
-
-    ws.on('message', async (res) => {
-      try {
-        const data = JSON.parse(res);
-        console.log('Received message:', data);
+    const events = {
+      'connect': () => {
+        console.log('WebSocket connected');
+        setIsConnected(true);
         
-        switch (data.type) {
-          case 'roomCreated':
-            if (!data.routerRtpCapabilities) {
-              console.error('No router RTP capabilities received');
-              return;
-            }
+        ws.emit('createRoom', {
+          roomId
+        });
+      },
+      'roomCreated': async (data: {routerRtpCapabilities: RtpCapabilities}) => {
+        if (!data.routerRtpCapabilities) {
+          console.error('No router RTP capabilities received');
+          return;
+        }
 
+        try {
+          // 创建了一个新的媒体设备实例
+          const device = new Device();
+          await device.load({ routerRtpCapabilities: data.routerRtpCapabilities });
+          deviceRef.current = device;
+          ws.emit('createTransport', {
+            roomId,
+            clientId: clientId.current,
+            from: '主播端',
+          });
+        } catch (error) {
+          console.error('Error loading device:', error);
+          setError('Failed to load media device');
+        }
+      },
+      'transportIsCreated': async (data: {
+        transportOptions: TransportOptions
+      }) => {
+        try {
+          const transport = deviceRef.current!.createSendTransport({
+            id: data.transportOptions.id,
+            iceParameters: data.transportOptions.iceParameters,
+            iceCandidates: data.transportOptions.iceCandidates,
+            dtlsParameters: data.transportOptions.dtlsParameters,
+          });
+          transportRef.current = transport;
+          transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
             try {
-              // 创建了一个新的媒体设备实例
-              const device = new Device();
-              await device.load({ routerRtpCapabilities: data.routerRtpCapabilities });
-              deviceRef.current = device;
-
-              ws.emit('createTransport', {
-                roomId,
-                clientId: clientId.current,
-                from: '主播端',
+              ws.emit('connectTransport', {
+                dtlsParameters,
+                transportId: transport.id,
+                clientId: clientId.current
               });
+              callback();
             } catch (error) {
-              console.error('Error loading device:', error);
-              setError('Failed to load media device');
+              errback(error as Error);
             }
-            break;
+          });
 
-          case 'transportIsCreated':
+          transport.on('produce', async (parameters: any, callback, errback) => {
             try {
-              const transport = deviceRef.current!.createSendTransport({
-                id: data.transportOptions.id,
-                iceParameters: data.transportOptions.iceParameters,
-                iceCandidates: data.transportOptions.iceCandidates,
-                dtlsParameters: data.transportOptions.dtlsParameters,
+              ws.emit('produce', {
+                type: 'produce',
+                kind: parameters.kind,
+                rtpParameters: parameters.rtpParameters,
+                transportId: transport.id,
+                clientId: clientId.current,
+                roomId
               });
               
-              transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
-                console.log('主播的webRTC通道连接成功: ');
-                try {
-                  ws.emit('connectTransport', {
-                    dtlsParameters,
-                    transportId: transport.id,
-                    clientId: clientId.current
-                  });
-                  callback();
-                } catch (error) {
-                  errback(error as Error);
-                }
-              });
-
-              transport.on('produce', async (parameters: any, callback, errback) => {
-                try {
-                  ws.emit('produce', {
-                    type: 'produce',
-                    kind: parameters.kind,
-                    rtpParameters: parameters.rtpParameters,
-                    transportId: transport.id,
-                    clientId: clientId.current,
-                    roomId
-                  });
-                  
-                  // 等待服务器返回 producerId，不然无法完成 Producer 创建的最后一步
-                  const onProducerCreated = (res: string) => {
-                    const response = JSON.parse(res);
-                    if (response.type === 'producerCreated') {
-                      ws.off('message', onProducerCreated);
-                      callback({ id: response.producerId });
-                    }
-                  };
-                  
-                  ws.on('message', onProducerCreated);
-                } catch (error) {
-                  errback(error as Error);
-                }
-              });
-
-              transportRef.current = transport;
+              // 等待服务器返回 producerId，不然无法完成 Producer 创建的最后一步
+              const onProducerCreated = (res: any) => {
+                ws.off('producerCreated', onProducerCreated);
+                callback({ id: res.producerId });
+              };
+              
+              ws.on('producerCreated', onProducerCreated);
             } catch (error) {
-              console.error('Error creating send transport:', error);
-              setError('Failed to create media transport');
+              errback(error as Error);
             }
-            break;
-          case 'transportConnected':
-            setViewers(data.viewers);
-            console.log('Transport connected successfully');
-            break;
-
-          case 'producerCreated':
-            producersRef.current.set(data.producerId, data);
-            break;
-
-          case 'error':
-            console.error('Server error:', data.message);
-            setError(data.message);
-            break;
+          });
+        } catch (error) {
+          console.error('Error creating send transport:', error);
+          setError('Failed to create media transport');
         }
-      } catch (error) {
-        console.error('Error processing message:', error);
-        setError('Failed to process server message');
+      },
+      'transportConnected': async (data: {viewers: number}) => {
+        setViewers(data.viewers);
+        console.log('Transport connected successfully');
+      },
+      'producerCreated': async (data: {
+        producerId: string,
+      }) => {
+        producersRef.current.set(data.producerId, data);
+      },
+      'error': async (data: {
+        message: string
+      }) => {
+        console.error('Server error:', data.message);
+        setError(data.message);
+      },
+      'disconnect': () => {
+        console.log('WebSocket disconnected');
+        setIsConnected(false);
+        setError('Connection closed');
       }
-    });
+    };
 
-    ws.on('connect_error', (error) => {
-      console.error('WebSocket error:', error);
-      setError('Connection error');
-    });
-
-    ws.on('disconnect', (reason) => {
-      console.log('WebSocket disconnected');
-      setIsConnected(false);
-      setError('Connection closed');
+    // on events
+    Object.entries(events).forEach(([event, handler]) => {
+      ws.on(event, handler);
     });
 
     return () => {
+      // off events
+      Object.entries(events).forEach(([event, handler]) => {
+        ws.off(event, handler);
+      });
       producersRef.current.forEach(producer => {
         if (producer) {
           producer.close();
@@ -170,6 +159,9 @@ const startStreaming = async () => {
     if (!deviceRef.current?.canProduce('video')) {
       throw new Error('Cannot produce video');
     }
+    if (!deviceRef.current?.loaded) {
+      throw new Error('Device not loaded');
+    }
 
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
@@ -186,7 +178,7 @@ const startStreaming = async () => {
         channelCount: 2,          // 声道数量（1 为单声道，2 为立体声）
       }
     });
-    
+  
     streamRef.current = stream;
     
     if (videoRef.current) {
@@ -225,6 +217,7 @@ const startStreaming = async () => {
         ]
       }
     });
+
     // 设置视频生产者的事件监听
     videoProducer.on('transportclose', () => {
       console.log('Video producer transport closed');

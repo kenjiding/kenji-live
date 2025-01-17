@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -11,9 +12,11 @@ async function bootstrap() {
     credentials: true,
   });
 
-  await app.listen(3001, () => {
-    console.log('HTTP服务器运行在: http://localhost:3001');
-    console.log('WebSocket服务器运行在: ws://localhost:3002');
+  const configService = app.get(ConfigService);
+  const port = configService.get<number>('PORT', 3001);
+
+  await app.listen(port, () => {
+    console.log(`HTTP服务器运行在: http://localhost:${port}`);
   });
 }
 

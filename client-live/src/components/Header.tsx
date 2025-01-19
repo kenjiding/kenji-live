@@ -14,7 +14,12 @@ const Header: React.FC<HeaderProps> = (props) => {
       <div className='flex-1'>
         <Input type="text" />
       </div>
-      <div className='flex-1 flex items-center justify-end'>login</div>
+      <div className='flex-1 flex items-center justify-end'>
+        <div className='py-1 px-4 bg-red-500 rounded-md mr-3 cursor-pointer'>
+          <a target='_blank' href="/broadcaster/123456">开播</a>
+        </div>
+        Login
+      </div>
     </div>
   );
 };

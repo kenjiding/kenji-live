@@ -27,10 +27,9 @@ export class RoomService {
     this.rooms.set(roomId, router);
   }
 
-  createPeer(clientId, roomId, socket) {
+  createPeer(clientId, roomId) {
     const peer: Peer = {
       roomId,
-      socket,
       transports: new Set(),
       producers: new Set(),
       consumers: new Set(),

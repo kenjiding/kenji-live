@@ -3,14 +3,20 @@ import { useEffect, useRef, useState } from 'react';
 import { Device } from 'mediasoup-client';
 import { useParams } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
-import { RtpCapabilities, TransportOptions, RtpParameters } from 'mediasoup-client/lib/types';
+import { RtpCapabilities, TransportOptions, RtpParameters, Producer } from 'mediasoup-client/lib/types';
+import { TransportConnectedSuccess } from '@/types/room.types';
 
 interface RoomVideoProps {
   roomId: string | string[] | undefined;
+  webRTCConnectSuccess?: (data: TransportConnectedSuccess) => {},
+  webRTCConnectError?: (data: any) => {},
+  liveStreamingStop?: () => {},
 }
 
 export default function RoomVideo({
-  roomId
+  roomId,
+  webRTCConnectSuccess,
+  liveStreamingStop,
 }: RoomVideoProps) {
   const [connectionInfo, setConnectionInfo] = useState<{
     websocket: string;
@@ -36,8 +42,63 @@ export default function RoomVideo({
     }));
   }
 
+  // async function createProducerTransport() {
+  //   // 1. 首先向服务器请求创建传输
+  //   const { data } = await wsRef.current!.emit('createProducerTransport', {
+  //     producing: true // 标识这是一个生产者传输
+  //   });
+  
+  //   if (data.error) {
+  //     throw new Error(data.error);
+  //   }
+  
+  //   // 2. 使用服务器返回的参数创建本地传输对象
+  //   const transport = deviceRef.current!.createSendTransport({
+  //     id: data.id,
+  //     iceParameters: data.iceParameters,
+  //     iceCandidates: data.iceCandidates,
+  //     dtlsParameters: data.dtlsParameters,
+  //   });
+  
+  //   // 3. 监听传输的连接事件
+  //   transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
+  //     try {
+  //       // 向服务器发起连接请求
+  //       await wsRef.current!.emit('connectProducerTransport', {
+  //         transportId: transport.id,
+  //         dtlsParameters
+  //       });
+        
+  //       // 连接成功调用回调
+  //       callback();
+  //     } catch (error) {
+  //       errback(error as Error);
+  //     }
+  //   });
+  
+  //   // 4. 监听传输的生产事件
+  //   transport.on('produce', async ({ kind, rtpParameters }, callback, errback) => {
+  //     try {
+  //       // 通知服务器开始生产媒体流
+  //       const { producerId } = await wsRef.current!.emit('produce', {
+  //         transportId: transport.id,
+  //         kind,
+  //         rtpParameters
+  //       });
+        
+  //       // 生产成功调用回调，返回生产者ID
+  //       callback({ id: producerId });
+  //     } catch (error) {
+  //       errback(error as Error);
+  //     }
+  //   });
+  
+  //   return transport;
+  // }
+  
   useEffect(() => {
-    const ws = io('http://localhost:3001', {
+    console.log('useEffect: ', 777);
+    const ws = io('http://192.168.1.105:3001/live', {
       path: '/socket.io',
       transports: ['websocket', 'polling']
     });
@@ -48,11 +109,11 @@ export default function RoomVideo({
       'connect': () => {
         changeConnectionInfo('websocket', '已连接');
         setInfo('正在加载媒体设备...');
-        ws.emit('getRouterRtpCapabilities', {
+        ws.emit('viewerJionRoom', {
           roomId
         });
       },
-      'routerRtpCapabilities': async (data: { rtpCapabilities: RtpCapabilities }) => {
+      'getRouterRtpCapabilities': async (data: { rtpCapabilities: RtpCapabilities }) => {
         try {
           const device = new Device();
           await device.load({ routerRtpCapabilities: data.rtpCapabilities });
@@ -66,6 +127,20 @@ export default function RoomVideo({
           console.error('设备加载错误:', error);
           setError('加载媒体设备失败');
         }
+      },
+      'interactiveAccepted': async (data: any) => {
+        // const transport = await createProducerTransport();
+  
+        // // 获取本地媒体流
+        // const stream = await navigator.mediaDevices.getUserMedia({
+        //   audio: true,
+        //   video: true
+        // });
+      
+        // // 发布流
+        // const producer = await transport.produce({
+        //   track: stream.getVideoTracks()[0]
+        // });
       },
       'transportIsCreated': async (data: {
         transportOptions: TransportOptions
@@ -84,13 +159,15 @@ export default function RoomVideo({
 
           transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
             try {
-              ws.emit('connectTransport', {
+              const params: TransportConnectedSuccess = {
                 dtlsParameters,
                 transportId: transport.id,
                 clientId: clientId.current,
-                roomId
-              });
+                roomId,
+              };
+              ws.emit('connectTransport', params);
               callback();
+              webRTCConnectSuccess && webRTCConnectSuccess(params);
             } catch (error) {
               errback(error as Error);
             }
@@ -103,10 +180,6 @@ export default function RoomVideo({
                 break;
               case 'connected':
                 changeConnectionInfo('webRTC', '连接已建立，正在获取媒体流...');
-                ws.emit('getProducers', {
-                  roomId,
-                  clientId: clientId.current
-                });
                 break;
               case 'failed':
                 changeConnectionInfo('webRTC', '连接失败');
@@ -123,7 +196,6 @@ export default function RoomVideo({
               clientId: clientId.current
             });
           }
-
         } catch (error: any) {
           console.error('创建传输错误:', error);
         }
@@ -143,14 +215,13 @@ export default function RoomVideo({
         }
       },
       'producers': async (data: {
-        producers: any
+        producers: Producer[]
       }) => {
         try {
           if (!data.producers || data.producers.length === 0) {
             setInfo('当前没有可用的媒体流');
             return;
           }
-
           for (const producer of data.producers) {
             if (!deviceRef.current?.rtpCapabilities || !transportRef.current) {
               throw new Error('设备或传输未就绪');
@@ -175,6 +246,7 @@ export default function RoomVideo({
       }) => {
         try {
           const { id, producerId, kind, rtpParameters } = data;
+          console.log('kind: ', kind);
 
           const consumer = await transportRef.current?.consume({
             id,
@@ -236,6 +308,7 @@ export default function RoomVideo({
         if (videoRef.current) {
           videoRef.current.srcObject = null;
         }
+        liveStreamingStop && liveStreamingStop();
         changeConnectionInfo('webRTC', '连接已关闭');
         setInfo('主播已结束直播');
       },
@@ -287,6 +360,13 @@ export default function RoomVideo({
     };
   }, []);
 
+  const lianmai = () => {
+    wsRef.current?.emit('requestInteractive', {
+      roomId,
+      userId: 'a123'
+    });
+  }
+
   return (
     <div>
       <div className="mb-4 flex justify-center">
@@ -298,6 +378,8 @@ export default function RoomVideo({
           style={{ border: '1px solid #ccc' }}
         />
       </div>
+      <button onClick={lianmai}>连麦</button>
+
       {/* <div className="mt-4 space-y-2 text-sm p-5">
         <p>服务器连接状态: {connectionInfo.websocket}</p>
         <p>webRTC连接状态: {connectionInfo.webRTC}</p>

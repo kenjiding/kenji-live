@@ -17,26 +17,20 @@ import {
 import { StreamingService } from '../services/streaming.service';
 import { RoomService } from '../services/room.service';
 
-interface Peer {
-  roomId;
-  socket: Socket;
-  transports: Set<string>;
-  producers: Set<string>;
-  consumers: Set<string>;
-}
+const MAX_ROOM_CAPACITY = 100;
 
 @WebSocketGateway({
   cors: {
     origin: '*',
   },
   transports: ['websocket', 'polling'],
-  namespace: '/',
+  namespace: '/live',
 })
 export class StreamingGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
   @WebSocketServer()
-  server: Server;
+  webSocketServer: Server;
 
   private readonly logger = new Logger('StreamingGateway');
 
@@ -51,10 +45,19 @@ export class StreamingGateway
 
   async handleDisconnect(@ConnectedSocket() client: Socket) {
     this.logger.log(`客户端断开连接: ${client.id}`);
-    this.handlePeerDisconnect(client);
   }
 
-  handlePeerDisconnect(client: Socket) {
+  async joinRoom(roomId, client) {
+    const clients = await this.webSocketServer.in(roomId).fetchSockets();
+    if (clients.length >= MAX_ROOM_CAPACITY) {
+      this.logger.error(roomId + `已超过${MAX_ROOM_CAPACITY}人, 房间已满`);
+      this.webSocketServer.to(roomId).emit('roomJoinError', { 
+        message: '房间已满' 
+      });
+      return;
+    }
+
+    client.join(roomId);
   }
 
   @SubscribeMessage('createRoom')
@@ -66,14 +69,45 @@ export class StreamingGateway
     },
   ) {
     const router = await this.streamingService.getOrCreateRouter(data.roomId);
-    client.emit('roomCreated',
-      {
-        roomId: data.roomId,
-        routerRtpCapabilities: router.rtpCapabilities,
-      },
-    );
+    await this.joinRoom(data.roomId, client);
+    // 首先通知创建者房间创建成功
+    client.emit('roomCreated', {
+      roomId: data.roomId,
+      routerRtpCapabilities: router.rtpCapabilities,
+    });
+    
+    // 然后广播给房间内的其他成员（如果有的话）
+    client.broadcast.to(data.roomId).emit('newRoomAvailable', {
+      roomId: data.roomId,
+      routerRtpCapabilities: router.rtpCapabilities,
+    });
   }
 
+  @SubscribeMessage('requestInteractive')
+  async handleRequestInteractive(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: {
+      roomId: string;
+      userId: string;
+    },
+  ) {
+    // 首先通知创建者房间创建成功
+    this.webSocketServer.to(data.roomId).emit('clientRequestInteractive', data);
+    console.log('clientRequestInteractive: ', 9090900);
+  }
+  @SubscribeMessage('allowInteractive')
+  async handleIAllowInteractive(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: {
+      roomId: string;
+      userId: string;
+    },
+  ) {
+    this.webSocketServer.to(data.roomId).emit('interactiveAccepted');
+  }
+  
   @SubscribeMessage('createTransport')
   async handleCreateTransport(
     @ConnectedSocket() client: Socket,
@@ -84,7 +118,7 @@ export class StreamingGateway
     },
   ) {
     const router = await this.streamingService.getOrCreateRouter(data.roomId);
-    this.roomService.createPeer(data.clientId, data.roomId, client);
+    this.roomService.createPeer(data.clientId, data.roomId);
 
     // 创建webRTC传输通道
     const transport = await this.streamingService.createWebRtcTransport(router, data.clientId);
@@ -110,25 +144,14 @@ export class StreamingGateway
       transportId;
       roomId;
       dtlsParameters;
+      from;
     },
   ) {
     try {
       await this.streamingService.connectTransport(data);
       const producerList = this.roomService.getProducerList(data.roomId);
-      
-      // await addViewer(data.roomId, data.clientId);
-      // const viewers = await getViewerCount(data.roomId);
-      client.emit('transportConnected',
-        {
-          viewers: 0,
-        },
-      );
-
-      client.emit('producers',
-        {
-          producers: producerList,
-        },
-      );
+      client.emit('transportConnected',{viewers: 0});
+      client.broadcast.to(data.roomId).emit('producers', { producers: producerList });
     } catch (error) {
       console.error('连接传输失败:', error);
       client.emit('error',
@@ -140,7 +163,7 @@ export class StreamingGateway
     }
   }
 
-  @SubscribeMessage('getRouterRtpCapabilities')
+  @SubscribeMessage('viewerJionRoom')
   async handleGetRouterRtpCapabilities(
     @ConnectedSocket() client: Socket,
     @MessageBody()
@@ -148,10 +171,9 @@ export class StreamingGateway
       roomId: string;
     },
   ) {
-    const {
-      rtpCapabilities
-    } = await this.streamingService.getOrCreateRouter(data.roomId);
-    client.emit('routerRtpCapabilities',
+    await this.joinRoom(data.roomId, client);
+    const { rtpCapabilities } = await this.streamingService.getOrCreateRouter(data.roomId);
+    client.emit('getRouterRtpCapabilities',
       {
         rtpCapabilities
       },
@@ -177,7 +199,6 @@ export class StreamingGateway
       } = await this.streamingService.createConsume(data);
       client.emit('consumerCreated',
         {
-          type: 'consumerCreated',
           id: consumer.id,
           producerId: producer.id,
           kind: consumer.kind,
@@ -200,10 +221,8 @@ export class StreamingGateway
     },
   ) {
     const producerList = this.roomService.getProducerList(data.roomId);
-
     client.emit('producers',
       {
-        type: 'producers',
         producers: producerList,
       },
     );
@@ -222,14 +241,16 @@ export class StreamingGateway
     },
   ) {
     const producer = await this.streamingService.createProduce(data);
-    client.emit('producerCreated',
-      {
-        producerId: producer.id,
-      },
-    );
+    // 向创建 producer 的客户端发送确认
+    client.emit('producerCreated', {
+      producerId: producer.id,
+    });
     
-    // 通知房间内其他人
-    this.broadcastNewProducer(data.roomId, producer.id, data.clientId);
+    // 通知房间内其他人有新的 producer（使用 broadcast）
+    client.broadcast.to(data.roomId).emit('newProducer', {
+      producerId: producer.id,
+      clientId: data.clientId
+    });
   }
 
   @SubscribeMessage('stopStreaming')
@@ -243,28 +264,6 @@ export class StreamingGateway
   ) {
     const producerIds = this.streamingService.getProducerIds(data);
     // 广播给房间内其他成员
-    this.roomService.peers.forEach((peer, peerId) => {
-      if (peer.roomId === data.roomId && peerId !== data.clientId) {
-        peer.socket.emit('livestreamStopped',
-          {
-            type: 'livestreamStopped',
-            producerIds,
-          },
-        );
-      }
-    });
-  }
-
-  broadcastNewProducer(roomId, producerId, excludeClientId) {
-    this.roomService.peers.forEach((peer, clientId) => {
-      if (peer.roomId === roomId && clientId !== excludeClientId) {
-        peer.socket.emit('newProducer',
-          {
-            type: 'newProducer',
-            producerId: producerId,
-          },
-        );
-      }
-    });
+    client.broadcast.to(data.roomId).emit('livestreamStopped', {producerIds});
   }
 }

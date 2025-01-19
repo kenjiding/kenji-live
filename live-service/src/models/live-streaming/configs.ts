@@ -31,13 +31,13 @@ export const mediaCodecs: RtpCodecCapability[] = [
     },
   },
 ];
-
 // WebRTC transport settings
 export const webRtcTransportOptions = {
   listenIps: [
     {
       ip: '0.0.0.0',
       announcedIp: '127.0.0.1',
+      // announcedIp: '192.168.1.105',
     },
   ],
   enableUdp: true,

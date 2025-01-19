@@ -18,9 +18,10 @@ export default function Broadcaster() {
   const transportRef = useRef<any>(null);
   const producersRef = useRef<Map<string, any>>(new Map());
   const clientId = useRef<string>(`broadcaster-${Date.now()}`);
+  const [interactiveInfo, setInteractive] = useState({userId: ''});
 
   useEffect(() => {
-    const ws = io('http://localhost:3001', {
+    const ws = io('http://192.168.1.105:3001/live', {
       path: '/socket.io',
       transports: ['websocket', 'polling']
     });
@@ -30,10 +31,12 @@ export default function Broadcaster() {
       'connect': () => {
         console.log('WebSocket connected');
         setIsConnected(true);
+        ws.emit('createRoom', {roomId});
+      },
+      'clientRequestInteractive': async (data: {roomId: string, userId: string}) => {
+        console.log('连麦data: ', data);
+        setInteractive(data);
 
-        ws.emit('createRoom', {
-          roomId
-        });
       },
       'roomCreated': async (data: { routerRtpCapabilities: RtpCapabilities }) => {
         if (!data.routerRtpCapabilities) {
@@ -68,11 +71,14 @@ export default function Broadcaster() {
           });
           transportRef.current = transport;
           transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
+            console.log('connect: ', 33333);
             try {
               ws.emit('connectTransport', {
                 dtlsParameters,
                 transportId: transport.id,
-                clientId: clientId.current
+                clientId: clientId.current,
+                roomId,
+                from: '主播'
               });
               callback();
             } catch (error) {
@@ -251,7 +257,9 @@ export default function Broadcaster() {
         console.log('Audio track ended');
         audioProducer.close();
       });
-
+      console.log(1, 'Video track:', videoTrack.getSettings()); // 检查视频轨道设置
+      console.log(2, 'Audio track:', audioTrack.getSettings()); // 检查音频轨道设置
+  
       // 保存生产者引用
       producersRef.current.set('video', videoProducer);
       producersRef.current.set('audio', audioProducer);
@@ -305,6 +313,10 @@ export default function Broadcaster() {
     }
   };
 
+  const allowInteractive = () => {
+    wsRef.current?.emit('allowInteractive', {roomId});
+  }
+
   return (
     <div className="p-10">
       <h1 className="text-2xl mb-4">主播端</h1>
@@ -329,6 +341,15 @@ export default function Broadcaster() {
       <div className="flex gap-4 p-10">
         <div className="mt-4 text-sm text-gray-600">
           连接状态: {isConnected ? '已连接' : '未连接'}
+        </div>
+
+        <div>
+          <button
+            onClick={allowInteractive}
+            className="px-4 py-2 bg-blue-500 text-white rounded disabled:bg-gray-400"
+          >
+            {`${interactiveInfo.userId} 请求连麦`}
+          </button>
         </div>
         <div>
           <button

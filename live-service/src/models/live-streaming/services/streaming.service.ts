@@ -127,30 +127,6 @@ export class StreamingService implements OnModuleInit {
     }
   }
 
-  async createProduce({
-    kind,
-    roomId,
-    transportId,
-    clientId,
-    rtpParameters,
-  }) {
-    const transport = this.roomService.transports.get(transportId);
-    if (!transport) {
-      throw new Error(`Transport not found: ${transportId}`);
-    }
-
-    const producer = await transport.produce({
-      kind: kind,
-      rtpParameters: rtpParameters,
-      appData: { peerId: clientId, roomId: roomId },
-    });
-
-    const peer = this.roomService.peers.get(clientId);
-    peer.producers.add(producer.id);
-    this.roomService.producers.set(producer.id, producer);
-    return producer;
-  }
-
   async connectTransport({
     transportId,
     roomId,
@@ -178,24 +154,6 @@ export class StreamingService implements OnModuleInit {
         role: dtlsParameters.role || 'auto',
       },
     });
-  }
-
-  async getProducerIds({
-    clientId,
-    roomId
-  }) {
-    const producersToRemove = Array.from(this.roomService.producers.values()).filter(
-      (producer) =>
-        producer.appData.clientId === clientId &&
-        producer.appData.roomId === roomId,
-    );
-
-    producersToRemove.forEach((producer) => {
-      producer.close();
-      this.roomService.producers.delete(producer.id);
-    });
-
-    return producersToRemove.map((p) => p.id);
   }
 
   async getMediaCodecsRouters() {

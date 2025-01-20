@@ -18,7 +18,7 @@ export default function Viewer() {
   });
   return (
     <div>
-      <RoomVideo roomId={roomId}></RoomVideo>
+      {/* <RoomVideo roomId={roomId}></RoomVideo> */}
       <div className="mt-4 space-y-2 text-sm">
         <p>服务器连接状态: {connectionInfo.websocket}</p>
         <p>webRTC连接状态: {connectionInfo.webRTC}</p>

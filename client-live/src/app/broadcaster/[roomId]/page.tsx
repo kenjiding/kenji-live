@@ -3,165 +3,34 @@ import { useEffect, useRef, useState } from 'react';
 import { Device } from 'mediasoup-client';
 import { useParams } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
-import { RtpCapabilities, TransportOptions } from 'mediasoup-client/lib/types';
+import { RtpCapabilities, TransportOptions, RtpParameters, Producer, Transport } from 'mediasoup-client/lib/types';
+import useLive from '../hooks/useLive'; 
+import { useLiveContext } from '@/hooks/useLiveContext';
 
 export default function Broadcaster() {
   const { roomId } = useParams();
-  const [isConnected, setIsConnected] = useState(false);
+  const { ws: wsRef, isConnected, emit } = useLiveContext();
   const [isStreaming, setIsStreaming] = useState(false);
-  const [viewers, setViewers] = useState<number>(0);
-  const [error, setError] = useState<string>('');
   const videoRef = useRef<HTMLVideoElement>(null);
-  const wsRef = useRef<Socket | null>(null);
-  const deviceRef = useRef<Device | null>(null);
+  const interactiveVideoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const transportRef = useRef<any>(null);
-  const producersRef = useRef<Map<string, any>>(new Map());
-  const clientId = useRef<string>(`broadcaster-${Date.now()}`);
-  const [interactiveInfo, setInteractive] = useState({userId: ''});
+  const deviceRef = useRef<Device | null>(null);
 
-  useEffect(() => {
-    const ws = io('http://192.168.1.105:3001/live', {
-      path: '/socket.io',
-      transports: ['websocket', 'polling']
-    });
-    wsRef.current = ws;
-
-    const events = {
-      'connect': () => {
-        console.log('WebSocket connected');
-        setIsConnected(true);
-        ws.emit('createRoom', {roomId});
-      },
-      'clientRequestInteractive': async (data: {roomId: string, userId: string}) => {
-        console.log('连麦data: ', data);
-        setInteractive(data);
-
-      },
-      'roomCreated': async (data: { routerRtpCapabilities: RtpCapabilities }) => {
-        if (!data.routerRtpCapabilities) {
-          console.error('No router RTP capabilities received');
-          return;
-        }
-
-        try {
-          // 创建了一个新的媒体设备实例
-          const device = new Device();
-          await device.load({ routerRtpCapabilities: data.routerRtpCapabilities });
-          deviceRef.current = device;
-          ws.emit('createTransport', {
-            roomId,
-            clientId: clientId.current,
-            from: '主播端',
-          });
-        } catch (error) {
-          console.error('Error loading device:', error);
-          setError('Failed to load media device');
-        }
-      },
-      'transportIsCreated': async (data: {
-        transportOptions: TransportOptions
-      }) => {
-        try {
-          const transport = deviceRef.current!.createSendTransport({
-            id: data.transportOptions.id,
-            iceParameters: data.transportOptions.iceParameters,
-            iceCandidates: data.transportOptions.iceCandidates,
-            dtlsParameters: data.transportOptions.dtlsParameters,
-          });
-          transportRef.current = transport;
-          transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
-            console.log('connect: ', 33333);
-            try {
-              ws.emit('connectTransport', {
-                dtlsParameters,
-                transportId: transport.id,
-                clientId: clientId.current,
-                roomId,
-                from: '主播'
-              });
-              callback();
-            } catch (error) {
-              errback(error as Error);
-            }
-          });
-
-          transport.on('produce', async (parameters: any, callback, errback) => {
-            try {
-              ws.emit('produce', {
-                type: 'produce',
-                kind: parameters.kind,
-                rtpParameters: parameters.rtpParameters,
-                transportId: transport.id,
-                clientId: clientId.current,
-                roomId
-              });
-
-              // 等待服务器返回 producerId，不然无法完成 Producer 创建的最后一步
-              const onProducerCreated = (res: any) => {
-                ws.off('producerCreated', onProducerCreated);
-                callback({ id: res.producerId });
-              };
-
-              ws.on('producerCreated', onProducerCreated);
-            } catch (error) {
-              errback(error as Error);
-            }
-          });
-        } catch (error) {
-          console.error('Error creating send transport:', error);
-          setError('Failed to create media transport');
-        }
-      },
-      'transportConnected': async (data: { viewers: number }) => {
-        setViewers(data.viewers);
-        console.log('Transport connected successfully');
-      },
-      'producerCreated': async (data: {
-        producerId: string,
-      }) => {
-        producersRef.current.set(data.producerId, data);
-      },
-      'error': async (data: {
-        message: string
-      }) => {
-        console.error('Server error:', data.message);
-        setError(data.message);
-      },
-      'disconnect': () => {
-        console.log('WebSocket disconnected');
-        setIsConnected(false);
-        setError('Connection closed');
-      }
-    };
-
-    // on events
-    Object.entries(events).forEach(([event, handler]) => {
-      ws.on(event, handler);
-    });
-
-    return () => {
-      // off events
-      Object.entries(events).forEach(([event, handler]) => {
-        ws.off(event, handler);
-      });
-      producersRef.current.forEach(producer => {
-        if (producer) {
-          producer.close();
-        }
-      });
-      if (transportRef.current) {
-        transportRef.current.close();
-      }
-      if (wsRef.current) {
-        wsRef.current.disconnect();
-      }
-    };
-  }, []);
-
+  const {
+    transportRef,
+    producersRef,
+    interactiveInfo
+  } = useLive({
+    roomId,
+    deviceRef,
+    videoRef: videoRef,
+    interactiveVideoRef: interactiveVideoRef
+  });
 
   const startStreaming = async () => {
     try {
+      console.log('deviceRef.current: ', deviceRef.current);
+
       if (!deviceRef.current?.canProduce('video')) {
         throw new Error('Cannot produce video');
       }
@@ -192,6 +61,7 @@ export default function Broadcaster() {
       }
 
       const transport = transportRef.current;
+      console.log('transport: ', transport);
 
       if (!transport) {
         throw new Error('Transport not ready');
@@ -267,7 +137,6 @@ export default function Broadcaster() {
       setIsStreaming(true);
     } catch (error: any) {
       console.error('Error starting stream:', error);
-      setError(error.message);
     }
   };
 
@@ -275,7 +144,7 @@ export default function Broadcaster() {
     try {
       // 停止所有媒体轨道
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current.getTracks().forEach((track: any) => track.stop());
         streamRef.current = null;
       }
 
@@ -299,39 +168,53 @@ export default function Broadcaster() {
       }
 
       // 向服务器发送停止直播的消息
-      wsRef.current?.emit('stopStreaming', {
+      wsRef?.emit('stopStreaming', {
         roomId,
-        clientId: clientId.current
       });
 
       // 重置状态
       setIsStreaming(false);
-      setError('');
     } catch (error) {
       console.error('Error stopping stream:', error);
-      setError('停止直播失败');
     }
   };
 
   const allowInteractive = () => {
-    wsRef.current?.emit('allowInteractive', {roomId});
+    wsRef?.emit('allowInteractive', {roomId});
+    console.log(wsRef, '主播允许连麦: ');
   }
 
   return (
     <div className="p-10">
       <h1 className="text-2xl mb-4">主播端</h1>
-      {error && (
-        <div className="mb-4 p-4 bg-red-100 text-red-700 rounded">
-          错误: {error}
-        </div>
-      )}
       <div className="w-3/4 m-auto mb-4 flex justify-center relative">
         <div className='absolute top-0 left-0 w-full pt-3 p-3 pl-5 pr-5'>
           <span className='text-sm text-red-500 py-1 px-2 bg-slate-200 opacity-70'>{ isStreaming ? '正在直播' : '未开播'}</span>
-          <span className='text-sm text-blue-800 py-1 px-2 bg-orange-300 ml-3'>观看: {viewers}</span>
+          {/* <span className='text-sm text-blue-800 py-1 px-2 bg-orange-300 ml-3'>观看: {viewers}</span> */}
         </div>
         <video
           ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className="w-full bg-black"
+        />
+      </div>
+
+      <div>
+          <button
+            onClick={isStreaming ? stopStreaming : startStreaming}
+            disabled={!isConnected}
+            className="px-4 py-2 bg-blue-500 text-white rounded disabled:bg-gray-400"
+          >
+            {isStreaming ? '停止直播' : '开始直播'}
+          </button>
+        </div>
+
+      <div className="w-3/4 m-auto mb-4 relative">
+        <h1 className='text-2xl'>连麦视频</h1>
+        <video
+          ref={interactiveVideoRef}
           autoPlay
           playsInline
           muted
@@ -343,23 +226,16 @@ export default function Broadcaster() {
           连接状态: {isConnected ? '已连接' : '未连接'}
         </div>
 
-        <div>
-          <button
-            onClick={allowInteractive}
-            className="px-4 py-2 bg-blue-500 text-white rounded disabled:bg-gray-400"
-          >
-            {`${interactiveInfo.userId} 请求连麦`}
-          </button>
-        </div>
-        <div>
-          <button
-            onClick={isStreaming ? stopStreaming : startStreaming}
-            disabled={!isConnected}
-            className="px-4 py-2 bg-blue-500 text-white rounded disabled:bg-gray-400"
-          >
-            {isStreaming ? '停止直播' : '开始直播'}
-          </button>
-        </div>
+        { 
+          interactiveInfo.userId && <div>
+            <button
+              onClick={allowInteractive}
+              className="px-4 py-2 bg-blue-500 text-white rounded disabled:bg-gray-400"
+            >
+              {`${interactiveInfo.userId} 请求连麦`}
+            </button>
+          </div>
+        }
       </div>
     </div>
   );

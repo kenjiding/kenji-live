@@ -47,4 +47,47 @@ export class RoomService {
       }));
   }
 
+  async getProducerIds({
+    clientId,
+    roomId
+  }) {
+    const producersToRemove = Array.from(this.producers.values()).filter(
+      (producer) =>
+        producer.appData.clientId === clientId &&
+        producer.appData.roomId === roomId,
+    );
+
+    producersToRemove.forEach((producer) => {
+      producer.close();
+      this.producers.delete(producer.id);
+    });
+
+    return producersToRemove.map((p) => p.id);
+  }
+
+  async createProduce({
+    kind,
+    roomId,
+    transportId,
+    clientId,
+    rtpParameters,
+  }) {
+    const transport = this.transports.get(transportId);
+    if (!transport) {
+      throw new Error(`Transport not found: ${transportId}`);
+    }
+
+    const producer = await transport.produce({
+      kind: kind,
+      rtpParameters: rtpParameters,
+      appData: { peerId: clientId, roomId: roomId },
+    });
+
+    const peer = this.peers.get(clientId);
+    console.log(clientId, 89000, this.peers);
+    peer.producers.add(producer.id);
+    this.producers.set(producer.id, producer);
+    return producer;
+  }
+
 }

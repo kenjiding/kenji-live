@@ -24,7 +24,7 @@ const MAX_ROOM_CAPACITY = 100;
     origin: '*',
   },
   transports: ['websocket', 'polling'],
-  namespace: '/live',
+  namespace: '/live/streaming',
 })
 export class StreamingGateway
   implements OnGatewayConnection, OnGatewayDisconnect
@@ -70,6 +70,7 @@ export class StreamingGateway
   ) {
     const router = await this.streamingService.getOrCreateRouter(data.roomId);
     await this.joinRoom(data.roomId, client);
+    console.log('首先通知创建者房间创建成功: ');
     // 首先通知创建者房间创建成功
     client.emit('roomCreated', {
       roomId: data.roomId,
@@ -93,9 +94,10 @@ export class StreamingGateway
     },
   ) {
     // 首先通知创建者房间创建成功
+    console.log('观众请求连麦');
     this.webSocketServer.to(data.roomId).emit('clientRequestInteractive', data);
-    console.log('clientRequestInteractive: ', 9090900);
   }
+
   @SubscribeMessage('allowInteractive')
   async handleIAllowInteractive(
     @ConnectedSocket() client: Socket,
@@ -105,9 +107,10 @@ export class StreamingGateway
       userId: string;
     },
   ) {
-    this.webSocketServer.to(data.roomId).emit('interactiveAccepted');
+    client.broadcast.to(data.roomId).emit('interactiveAccepted', { ...data });
+    console.log("主播已允许连麦,并发送事件给观看端");
   }
-  
+
   @SubscribeMessage('createTransport')
   async handleCreateTransport(
     @ConnectedSocket() client: Socket,
@@ -240,7 +243,7 @@ export class StreamingGateway
       rtpParameters: RtpParameters;
     },
   ) {
-    const producer = await this.streamingService.createProduce(data);
+    const producer = await this.roomService.createProduce(data);
     // 向创建 producer 的客户端发送确认
     client.emit('producerCreated', {
       producerId: producer.id,
@@ -262,7 +265,7 @@ export class StreamingGateway
       clientId: string;
     },
   ) {
-    const producerIds = this.streamingService.getProducerIds(data);
+    const producerIds = this.roomService.getProducerIds(data);
     // 广播给房间内其他成员
     client.broadcast.to(data.roomId).emit('livestreamStopped', {producerIds});
   }

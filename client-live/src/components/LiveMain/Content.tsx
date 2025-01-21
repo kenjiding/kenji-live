@@ -41,9 +41,9 @@ const SideBar = () => {
           <div className='w-8 h-8 flex justify-center items-center bg-gray-800 rounded-lg mx-2 cursor-pointer'>
             <Ellipsis />
           </div>
-          <div className='flex rounded-sm bg-red-500 py-1 px-3'>
+          <div className='flex rounded-sm bg-red-500 py-1 px-3 justify-center items-center'>
             <p className='w-10'>关注</p>
-            <CirclePlus />
+            <CirclePlus size={20} />
           </div>
         </div>
       </div>

@@ -9,7 +9,7 @@ import { useLiveContext } from '@/hooks/useLiveContext';
 
 export default function Broadcaster() {
   const { roomId } = useParams();
-  const { ws: wsRef, isConnected, emit } = useLiveContext();
+  const { ws: wsRef, wsInterativeRef, isConnected, emit } = useLiveContext();
   const [isStreaming, setIsStreaming] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const interactiveVideoRef = useRef<HTMLVideoElement>(null);
@@ -29,8 +29,6 @@ export default function Broadcaster() {
 
   const startStreaming = async () => {
     try {
-      console.log('deviceRef.current: ', deviceRef.current);
-
       if (!deviceRef.current?.canProduce('video')) {
         throw new Error('Cannot produce video');
       }
@@ -40,9 +38,12 @@ export default function Broadcaster() {
 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 1920 },   // 理想宽度
-          height: { ideal: 1080 },  // 理想高度
-          frameRate: { ideal: 30 }  // 理想帧率
+          // width: { ideal: 1920 },
+          // height: { ideal: 1080 },
+          // frameRate: { ideal: 30 }
+          width: { ideal: 720 },
+          height: { ideal: 1280 },  // 竖屏比例 9:16
+          aspectRatio: { ideal: 0.5625 },
         },
         audio: {
           noiseSuppression: true,   // 消除背景噪音
@@ -127,8 +128,6 @@ export default function Broadcaster() {
         console.log('Audio track ended');
         audioProducer.close();
       });
-      console.log(1, 'Video track:', videoTrack.getSettings()); // 检查视频轨道设置
-      console.log(2, 'Audio track:', audioTrack.getSettings()); // 检查音频轨道设置
   
       // 保存生产者引用
       producersRef.current.set('video', videoProducer);
@@ -180,8 +179,8 @@ export default function Broadcaster() {
   };
 
   const allowInteractive = () => {
-    wsRef?.emit('allowInteractive', {roomId});
-    console.log(wsRef, '主播允许连麦: ');
+    wsInterativeRef?.emit('allowInteractive', {roomId});
+    console.log('主播允许连麦');
   }
 
   return (

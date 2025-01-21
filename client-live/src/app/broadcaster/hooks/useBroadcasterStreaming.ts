@@ -22,7 +22,7 @@ export default function useBroadcasterStreaming({
 
   useEffect(() => {
     if (!wsRef || !isConnected) return;
-    console.log('主播端 WebSocket connected');
+    console.log('主播端 直播服务 WebSocket connected');
     wsRef?.emit('createRoom', {roomId});
     const events = {
       'roomCreated': async (data: { routerRtpCapabilities: RtpCapabilities }) => {
@@ -30,14 +30,14 @@ export default function useBroadcasterStreaming({
           console.error('No router RTP capabilities received');
           return;
         }
-        console.log('主播加入房间成功, roomCreated');
+        console.log('主播加入直播房间成功, roomCreated');
 
         try {
           // 创建了一个新的媒体设备实例
           const device = new Device();
           await device.load({ routerRtpCapabilities: data.routerRtpCapabilities });
           deviceRef.current = device;
-          console.log('主播 device 已经准备就绪: ', deviceRef);
+          console.log('主播直播 device 已经准备就绪: ');
           wsRef?.emit('createTransport', {
             roomId,
             clientId: clientId.current,
@@ -59,7 +59,7 @@ export default function useBroadcasterStreaming({
           });
           transportRef.current = transport;
           transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
-            console.log('主播 transport 已经连接完成: ');
+            console.log('主播直播 transport 已经连接完成');
             try {
               wsRef?.emit('connectTransport', {
                 dtlsParameters,
@@ -102,7 +102,6 @@ export default function useBroadcasterStreaming({
       },
       'transportConnected': async (data: { viewers: number }) => {
         setViewers(data.viewers);
-        console.log('Transport connected successfully');
       },
       'producerCreated': async (data: {
         producerId: string,

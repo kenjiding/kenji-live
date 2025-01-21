@@ -5,7 +5,9 @@ import { Socket, io } from 'socket.io-client';
 // 定义上下文类型
 export interface LiveContextType {
   ws: Socket | null;
+  wsInterativeRef: Socket | null;
   isConnected: boolean;
+  isInteractiveConnected: boolean;
   roomId: string;
 }
 
@@ -22,16 +24,25 @@ export const LiveContext = createContext<LiveContextType | null>(null);
 // Provider 组件
 export function LiveProvider({ children, roomId, url }: LiveProviderProps) {
   const [isConnected, setIsConnected] = useState(false);
+  const [isInteractiveConnected, setIsInteractiveConnected] = useState(false);
   const wsRef = useRef<Socket | null>(null);
+  const wsInterativeRef = useRef<Socket | null>(null);
 
   useEffect(() => {
     // 创建 WebSocket 连接
-    const ws = io(url, {
+    const ws = io('http://192.168.1.105:3001/live/streaming', {
+      path: '/socket.io',
+      transports: ['websocket', 'polling']
+    });
+
+
+    const wsInterative = io('http://192.168.1.105:3001/live/interactive', {
       path: '/socket.io',
       transports: ['websocket', 'polling']
     });
     
     wsRef.current = ws;
+    wsInterativeRef.current = wsInterative;
 
     // 基础连接事件处理
     ws.on('connect', () => {
@@ -49,21 +60,44 @@ export function LiveProvider({ children, roomId, url }: LiveProviderProps) {
       setIsConnected(false);
     });
 
+    // 基础连接事件处理
+    wsInterative.on('connect', () => {
+      console.log('interative WebSocket connected');
+      setIsInteractiveConnected(true);
+    });
+
+    wsInterative.on('disconnect', () => {
+      console.log('interative WebSocket disconnected');
+      setIsInteractiveConnected(false);
+    });
+
+    wsInterative.on('connect_error', (error) => {
+      console.error('interative Connection error:', error);
+      setIsInteractiveConnected(false);
+    });
+
     // 清理函数
     return () => {
       if (wsRef.current) {
         wsRef.current.disconnect();
         wsRef.current = null;
       }
+      if (wsInterativeRef.current) {
+        wsInterativeRef.current.disconnect();
+        wsInterativeRef.current = null;
+      }
       setIsConnected(false);
+      setIsInteractiveConnected(false);
     };
   }, []);
 
   // 提供上下文值
   const contextValue: LiveContextType = {
     ws: wsRef.current,
+    wsInterativeRef: wsInterativeRef.current,
     isConnected,
     roomId,
+    isInteractiveConnected
   };
 
   return (

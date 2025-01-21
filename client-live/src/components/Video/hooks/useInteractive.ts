@@ -10,7 +10,8 @@ import { useLiveContext } from '@/hooks/useLiveContext';
 interface RoomVideoProps {
   roomId: string | string[] | undefined,
   videoRef: RefObject<HTMLVideoElement | null>,
-  deviceRef: RefObject<Device | null>,
+  // deviceRef: RefObject<Device | null>,
+  interactiveAcceptedHandler?: () => void,
   webRTCConnectSuccess?: (data: TransportConnectedSuccess) => {},
   webRTCConnectError?: (data: any) => {},
   liveStreamingStop?: () => {},
@@ -18,12 +19,13 @@ interface RoomVideoProps {
 
 export default function useInteractive({
   roomId,
-  webRTCConnectSuccess,
+  interactiveAcceptedHandler,
   liveStreamingStop,
-  deviceRef,
+  // deviceRef,
   videoRef
 }: RoomVideoProps) {
-  const { ws: wsRef, isConnected, emit } = useLiveContext();
+  const { wsInterativeRef, isInteractiveConnected, emit } = useLiveContext();
+  const deviceRef = useRef<Device | null>(null);
   const [connectionInfo, setConnectionInfo] = useState<{
     websocket: string;
     webRTC: string;
@@ -43,18 +45,22 @@ export default function useInteractive({
   }
   
   useEffect(() => {
-    if (!wsRef || !isConnected) return;
-    
+    if (!wsInterativeRef || !isInteractiveConnected) return;
+    console.log('观看端连麦ws服务已经连接');
+    wsInterativeRef?.emit('createRoom', {roomId});
     const events = {
-      'interactiveAccepted': (data: any) => {
+      'interactiveAccepted': async (data: any) => {
         // const transport = await createProducerTransport();
-        console.log(1, '准备创建transport');
-        wsRef?.emit('createProduceTransport', {
+        const device = new Device();
+        await device.load({ routerRtpCapabilities: data.routerRtpCapabilities });
+        deviceRef.current = device;
+        wsInterativeRef?.emit('createTransport', {
           roomId,
           clientId: clientId.current,
         });
+        interactiveAcceptedHandler && interactiveAcceptedHandler();
       },
-      'produceTransportIsCreated': async (data: {
+      'transportIsCreated': async (data: {
         transportOptions: TransportOptions,
         viewerSideType: string,
       }) => {
@@ -82,7 +88,7 @@ export default function useInteractive({
                 clientId: clientId.current,
                 roomId,
               };
-              wsRef?.emit('connectTransport', params);
+              wsInterativeRef?.emit('connectTransport', params);
               callback();
             } catch (error) {
               errback(error as Error);
@@ -92,7 +98,7 @@ export default function useInteractive({
           transport.on('produce', async (parameters: any, callback, errback) => {
             try {
               console.log(4, 'webrtc开始推音频流');
-              wsRef?.emit('produce', {
+              wsInterativeRef?.emit('produce', {
                 type: 'produce',
                 kind: parameters.kind,
                 rtpParameters: parameters.rtpParameters,
@@ -104,10 +110,10 @@ export default function useInteractive({
               // 等待服务器返回 producerId，不然无法完成 Producer 创建的最后一步
               const onProducerCreated = (res: any) => {
                 callback({ id: res.producerId });
-                wsRef?.off('producerCreated', onProducerCreated);
+                wsInterativeRef?.off('producerCreated', onProducerCreated);
               };
 
-              wsRef?.on('producerCreated', onProducerCreated);
+              wsInterativeRef?.on('producerCreated', onProducerCreated);
             } catch (error) {
               errback(error as Error);
             }
@@ -125,7 +131,6 @@ export default function useInteractive({
       'producerCreated': async (data: {
         producerId: string,
       }) => {
-        // producersRef.current.set(data.producerId, data);
       },
       'transportConnected': async (data: {
         viewers: number
@@ -142,11 +147,11 @@ export default function useInteractive({
         console.error('服务器错误:', data.message);
       },
       'connect_error': (error: Error) => {
-        wsRef?.emit('removeViewer', { type: 'removeViewer', roomId, clientId: clientId.current });
+        wsInterativeRef?.emit('removeViewer', { type: 'removeViewer', roomId, clientId: clientId.current });
         console.error('WebSocket错误:', error);
       },
       'disconnect': () => {
-        wsRef?.emit('removeViewer', { type: 'removeViewer', roomId, clientId: clientId.current });
+        wsInterativeRef?.emit('removeViewer', { type: 'removeViewer', roomId, clientId: clientId.current });
         console.log('WebSocket已关闭');
         changeConnectionInfo('websocket', '连接已关闭');
       }
@@ -154,18 +159,18 @@ export default function useInteractive({
 
     // on events
     Object.entries(events).forEach(([event, handler]) => {
-      wsRef?.on(event, handler);
+      wsInterativeRef?.on(event, handler);
     });
 
     return () => {
       // off events
       Object.entries(events).forEach(([event, handler]) => {
-        wsRef?.off(event, handler);
+        wsInterativeRef?.off(event, handler);
       });
-      wsRef && wsRef.close();
+      wsInterativeRef && wsInterativeRef.close();
       stopStreaming();
     };
-  }, [isConnected]);
+  }, [isInteractiveConnected]);
 
   const stopStreaming = () => {
     // 清空视频源
@@ -194,9 +199,12 @@ export default function useInteractive({
 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 1920 },   // 理想宽度
-          height: { ideal: 1080 },  // 理想高度
-          frameRate: { ideal: 30 }  // 理想帧率
+          // width: { ideal: 1920 },
+          // height: { ideal: 1080 },
+          // frameRate: { ideal: 30 }
+          width: { ideal: 720 },
+          height: { ideal: 1280 },  // 竖屏比例 9:16
+          aspectRatio: { ideal: 0.5625 },
         },
         audio: {
           noiseSuppression: true,   // 消除背景噪音
@@ -294,7 +302,7 @@ export default function useInteractive({
 
   return {
     videoRef,
-    wsRef,
+    wsInterativeRef,
     transportRef: sendTransportRef
   };
 }

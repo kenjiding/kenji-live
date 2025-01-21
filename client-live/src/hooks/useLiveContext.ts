@@ -8,7 +8,7 @@ export function useLiveContext() {
     throw new Error('useLiveContext must be used within LiveProvider');
   }
 
-  const { ws, isConnected, roomId, clientId } = context;
+  const { ws, isConnected, roomId, wsInterativeRef, isInteractiveConnected } = context;
 
   // 提供一些辅助方法
   const emit = (event: string, data: any) => {
@@ -22,8 +22,9 @@ export function useLiveContext() {
   return {
     ws,
     isConnected,
+    isInteractiveConnected,
     roomId,
-    clientId,
-    emit
+    emit,
+    wsInterativeRef
   };
 }

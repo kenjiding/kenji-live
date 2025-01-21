@@ -24,9 +24,9 @@ const MAX_ROOM_CAPACITY = 100;
     origin: '*',
   },
   transports: ['websocket', 'polling'],
-  namespace: '/live/streaming',
+  namespace: '/live/interactive',
 })
-export class StreamingGateway
+export class InteractiveGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
   @WebSocketServer()
@@ -80,6 +80,35 @@ export class StreamingGateway
     client.broadcast.to(data.roomId).emit('newRoomAvailable', {
       roomId: data.roomId,
       routerRtpCapabilities: router.rtpCapabilities,
+    });
+  }
+
+  @SubscribeMessage('requestInteractive')
+  async handleRequestInteractive(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: {
+      roomId: string;
+      userId: string;
+    },
+  ) {
+    // 首先通知创建者房间创建成功
+    console.log('观众请求连麦');
+    this.webSocketServer.to(data.roomId).emit('clientRequestInteractive', data);
+  }
+
+  @SubscribeMessage('allowInteractive')
+  async handleIAllowInteractive(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: {
+      roomId: string;
+      userId: string;
+    },
+  ) {
+    const router = await this.streamingService.getOrCreateRouter(data.roomId);
+    client.broadcast.to(data.roomId).emit('interactiveAccepted', {
+      routerRtpCapabilities: router.rtpCapabilities
     });
   }
 
@@ -150,6 +179,7 @@ export class StreamingGateway
         consumer,
         producer,
       } = await this.streamingService.createConsume(data);
+      if(!consumer || !producer) throw new Error('Failed to create consumer');
       client.emit('consumerCreated',
         {
           id: consumer.id,

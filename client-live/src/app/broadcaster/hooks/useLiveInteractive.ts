@@ -7,28 +7,41 @@ import { useLiveContext } from '@/hooks/useLiveContext';
 
 export default function useLiveInteractive({
   roomId,
-  deviceRef,
+  // deviceRef,
   interactiveVideoRef
 }: {
   roomId: string | string[] | undefined,
-  deviceRef: RefObject<Device | null>
+  // deviceRef: RefObject<Device | null>
   interactiveVideoRef: RefObject<HTMLVideoElement | null>,
 }) {
-  const { ws: wsRef, isConnected, emit } = useLiveContext();
+  const { wsInterativeRef, isInteractiveConnected, emit } = useLiveContext();
   const [viewers, setViewers] = useState<number>(0);
   const [error, setError] = useState<string>('');
   const recvTransportRef = useRef<any>(null);
   const consumersRef = useRef<Map<string, any>>(new Map());
   const recvClientId = useRef<string>(`broadcaster-interactive-${Date.now()}`);
   const [interactiveInfo, setInteractive] = useState({userId: ''});
+  const deviceRef = useRef<Device | null>(null);
 
   useEffect(() => {
-    if (!wsRef || !isConnected) return;
-
+    if (!wsInterativeRef || !isInteractiveConnected) return;
+    console.log('连麦服务已经连接成功');
+    wsInterativeRef?.emit('createRoom', {
+      roomId
+    });
     const events = {
-      'clientRequestInteractive': async (data: {roomId: string, userId: string}) => {
-        console.log('观众请求连麦data: ', data);
-        setInteractive(data);
+      'roomCreated': async (data: { routerRtpCapabilities: RtpCapabilities }) => {
+        try {
+          const device = new Device();
+          await device.load({ routerRtpCapabilities: data.routerRtpCapabilities });
+          deviceRef.current = device;
+          wsInterativeRef?.emit('createTransport', {
+            roomId,
+            clientId: recvClientId.current
+          });
+        } catch (error: any) {
+          console.error('设备加载错误:', error);
+        }
       },
       'transportIsCreated': async (data: {
         transportOptions: TransportOptions
@@ -41,10 +54,10 @@ export default function useLiveInteractive({
             dtlsParameters: data.transportOptions.dtlsParameters,
           });
           console.log('主播端的consumer transport已经创建完成');
-
           transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
             try {
-              wsRef?.emit('connectTransport', {
+              console.log('主播端的consumer transport已经连接完成');
+              wsInterativeRef?.emit('connectTransport', {
                 dtlsParameters,
                 transportId: transport.id,
                 clientId: recvClientId.current,
@@ -59,7 +72,7 @@ export default function useLiveInteractive({
           recvTransportRef.current = transport;
 
           if (recvTransportRef.current) {
-            wsRef?.emit('getProducers', {
+            wsInterativeRef?.emit('getProducers', {
               roomId,
               clientId: recvClientId.current
             });
@@ -71,13 +84,12 @@ export default function useLiveInteractive({
       },
       'newProducer': async () => {
         if (recvTransportRef.current) {
-          wsRef?.emit('getProducers', {
+          wsInterativeRef?.emit('getProducers', {
             roomId,
             clientId: recvClientId.current
           });
         }
       },
-      // 这里订阅的是观看端的音频流
       'producers': async (data: {
         producers: Producer[]
       }) => {
@@ -90,7 +102,7 @@ export default function useLiveInteractive({
             if (!deviceRef.current!.rtpCapabilities || !recvTransportRef.current) {
               throw new Error('设备或传输未就绪');
             }
-            wsRef?.emit('consume', {
+            wsInterativeRef?.emit('consume', {
               roomId,
               producerId: producer.id,
               rtpCapabilities: deviceRef.current!.rtpCapabilities,
@@ -110,9 +122,6 @@ export default function useLiveInteractive({
       }) => {
         try {
           const { id, producerId, kind, rtpParameters } = data;
-          console.log(55555, 'data: ', data);
-          console.log(interactiveVideoRef.current, 'kind: ', kind);
-
           const consumer = await recvTransportRef.current?.consume({
             id,
             producerId,
@@ -121,8 +130,6 @@ export default function useLiveInteractive({
             paused: false
           });
           consumersRef.current.set(id, consumer);
-          console.log('set: ', 22222);
-
           if (kind === 'video') {
             const stream = new MediaStream([consumer.track]);
             if (interactiveVideoRef) {
@@ -148,17 +155,21 @@ export default function useLiveInteractive({
           consumer.on('trackended', () => {
             consumer.close();
             consumersRef.current.delete(id);
-            wsRef?.emit('removeViewer', { type: 'removeViewer', roomId, clientId: recvClientId.current });
+            wsInterativeRef?.emit('removeViewer', { type: 'removeViewer', roomId, clientId: recvClientId.current });
           });
 
           consumer.on('transportclose', () => {
             consumer.close();
             consumersRef.current.delete(id);
-            wsRef?.emit('removeViewer', { type: 'removeViewer', roomId, clientId: recvClientId.current });
+            wsInterativeRef?.emit('removeViewer', { type: 'removeViewer', roomId, clientId: recvClientId.current });
           });
         } catch (error: any) {
           console.error('设置消费者错误:', error);
         }
+      },
+      'clientRequestInteractive': async (data: {roomId: string, userId: string}) => {
+        console.log('观众请求连麦data: ', data);
+        setInteractive(data);
       },
       'livestreamStopped': async () => {
         stopStreaming();
@@ -169,9 +180,7 @@ export default function useLiveInteractive({
       },
       'producerCreated': async (data: {
         producerId: string,
-      }) => {
-        // producersRef.current.set(data.producerId, data);
-      },
+      }) => {},
       'error': async (data: {
         message: string
       }) => {
@@ -186,18 +195,18 @@ export default function useLiveInteractive({
 
     // on events
     Object.entries(events).forEach(([event, handler]) => {
-      wsRef?.on(event, handler);
+      wsInterativeRef?.on(event, handler);
     });
 
     return () => {
       // off events
       Object.entries(events).forEach(([event, handler]) => {
-        wsRef?.off(event, handler);
+        wsInterativeRef?.off(event, handler);
       });
       stopStreaming();
-      wsRef?.disconnect();
+      wsInterativeRef?.disconnect();
     };
-  }, [isConnected]);
+  }, [isInteractiveConnected]);
 
   const stopStreaming = () => {
     // 关闭所有 Consumers

@@ -7,13 +7,11 @@ import { useLiveContext } from '@/hooks/useLiveContext';
 
 const useLive = ({
   roomId,
-  // wsRef,
   deviceRef,
   interactiveVideoRef,
   videoRef,
 }: {
   roomId: string | string[] | undefined;
-  // wsRef: Socket | null,
   interactiveVideoRef: RefObject<HTMLVideoElement | null>,
   videoRef: RefObject<HTMLVideoElement | null>,
   deviceRef: RefObject<Device | null>,
@@ -31,7 +29,6 @@ const useLive = ({
     interactiveInfo,
   } = useLiveInteractive({
     roomId,
-    deviceRef,
     interactiveVideoRef
   });
 

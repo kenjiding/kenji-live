@@ -25,16 +25,16 @@ const useStreaming = ({
   useEffect(() => {
     if (!wsRef || !isConnected) return;
 
-    console.log('观看端 ws连接成功connect: ');
-    wsRef?.emit('viewerJionRoom', {
+    console.log('观看端直播ws服务已经连接: ');
+    wsRef?.emit('createRoom', {
       roomId
     });
     const events = {
-      'getRouterRtpCapabilities': async (data: { rtpCapabilities: RtpCapabilities }) => {
+      'roomCreated': async (data: { routerRtpCapabilities: RtpCapabilities }) => {
         try {
-          console.log('观看端 加入room 成功');
+          console.log('观看端加入room 成功');
           const device = new Device();
-          await device.load({ routerRtpCapabilities: data.rtpCapabilities });
+          await device.load({ routerRtpCapabilities: data.routerRtpCapabilities });
           deviceRef.current = device;
           wsRef?.emit('createTransport', {
             roomId,
@@ -56,7 +56,6 @@ const useStreaming = ({
           if(!deviceRef.current?.loaded) {
             throw new Error('设备还没有加载成功');
           }
-          console.log(12, 'deviceRef: ', deviceRef.current?.loaded);
 
           const transport = deviceRef.current!.createRecvTransport({
             id: data.transportOptions.id,

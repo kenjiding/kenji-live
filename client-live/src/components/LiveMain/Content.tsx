@@ -48,7 +48,7 @@ const SideBar = () => {
         </div>
       </div>
       <div className='p-4'>
-        <div className="px-10 rounded-lg shadow w-full">
+        <div className="px-3 rounded-lg shadow w-full">
           <RoomVideo roomId={'123456'}></RoomVideo>
         </div>
         <GivePresent></GivePresent>

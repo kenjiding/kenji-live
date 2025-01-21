@@ -10,9 +10,11 @@ const useViewerLive = ({
   // wsRef,
   interactiveVideoRef,
   videoRef,
+  ...rest
 }: {
   roomId: string | string[] | undefined;
   // wsRef: Socket | null,
+  interactiveAcceptedHandler?: () => void,
   interactiveVideoRef: RefObject<HTMLVideoElement | null>,
   videoRef: RefObject<HTMLVideoElement | null>,
 }) => {
@@ -22,16 +24,13 @@ const useViewerLive = ({
     roomId,
     videoRef,
     deviceRef,
+    ...rest,
   });
   useInteractive({
     roomId,
     videoRef: interactiveVideoRef,
-    deviceRef,
+    ...rest,
   });
-
-  return {
-  };
-
 }
 
 export default useViewerLive;

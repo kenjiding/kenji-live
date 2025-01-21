@@ -174,7 +174,7 @@ export default function useInteractive({
 
   const stopStreaming = () => {
     // 清空视频源
-    if (videoRef) {
+    if (videoRef.current) {
       videoRef.current!.srcObject = null;
     }
     if (sendTransportRef.current) {

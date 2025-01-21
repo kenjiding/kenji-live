@@ -15,7 +15,7 @@ export interface LiveContextType {
 export interface LiveProviderProps {
   children: ReactNode;
   roomId: string;
-  url: string;
+  url?: string;
 }
 
 // 创建上下文

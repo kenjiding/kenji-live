@@ -1,15 +1,11 @@
 "use client";
-import { useEffect, useRef, useState } from 'react';
-import { Device } from 'mediasoup-client';
-import { useParams } from 'next/navigation';
-import { io, Socket } from 'socket.io-client';
-import { RtpCapabilities, TransportOptions, RtpParameters, Producer, Transport } from 'mediasoup-client/lib/types';
+import { useRef, useState } from 'react';
 import { TransportConnectedSuccess } from '@/types/room.types';
-// import useStreaming from './hooks/useStreaming';
 import useViewerLive from './hooks/useViewerLive';
 import { useLiveContext } from '@/hooks/useLiveContext';
-import { CircleMinus, RefreshCcw, Forward, Ellipsis, CirclePlus } from 'lucide-react';
+import { CircleMinus, RefreshCcw, CirclePlus } from 'lucide-react';
 import TooltipWrapper from '@/components/TooltipWrapper';
+import { useToast } from "@/hooks/use-toast"
 
 interface RoomVideoProps {
   roomId: string | string[] | undefined;
@@ -34,12 +30,18 @@ export default function RoomVideo({
   const interactiveVideoRef = useRef<HTMLVideoElement>(null);
   const { wsInterativeRef, isConnected, emit } = useLiveContext();
   const [isInteractive, setIsInteractive] = useState(false);
+  const { toast } = useToast()
 
   const acceptInteractive = () => {
     console.log('观看端发起连麦请求');
     wsInterativeRef?.emit('requestInteractive', {
       roomId,
       userId: 'a123'
+    });
+    toast({
+      title: "发起连麦请",
+      description: "已经发起连麦请",
+      action: <div>success</div>,
     });
   }
 
@@ -90,7 +92,7 @@ export default function RoomVideo({
 
       {/* 控制按钮 */}
       <div className='absolute flex w-full bottom-0 left-0 opacity-0
-        group-hover:opacity-100 transition-opacity duration-300
+        group-hover:opacity-100 transition-opacity duration-500
         p-3'>
         <div className='flex-1 flex items-center cursor-pointer'>
           <TooltipWrapper text='刷新'>

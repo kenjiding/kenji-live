@@ -3,9 +3,11 @@ import { Camera, House, UserRoundCheck, Handshake, TvMinimalPlay, RefreshCcw } f
 import { recommendList } from '@/mockData';
 import Image from 'next/image';
 
-const LeftSideBar = () => {
+const LeftSideBar = (props: {
+  className?: string;
+}) => {
   return (
-    <aside className="w-60 shadow-lg bg-[#121212] border-r border-gray-800 overflow-y-auto">
+    <aside className={`w-60 shadow-lg bg-[#121212] border-r border-gray-800 overflow-y-auto ${props.className}`}>
       <div className="p-4">
         <nav>
           <ul className="space-y-1">

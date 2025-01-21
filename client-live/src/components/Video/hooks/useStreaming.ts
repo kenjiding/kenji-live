@@ -234,7 +234,7 @@ const useStreaming = ({
       recvTransportRef.current.close();
     }
     // 清空视频源
-    if (videoRef) {
+    if (videoRef.current) {
       videoRef.current!.srcObject = null;
     }
   }

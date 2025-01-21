@@ -47,12 +47,12 @@ type GivePresentProps = {
 const GivePresent: React.FC<GivePresentProps> = (props) => {
   return (
     <div className='bg-[#1e1e1e] px-8 rounded-xl'>
-      <ul className='flex border-b border-gray-600'>
+      <ul className='flex sm:flex-wrap justify-start border-b border-gray-600'>
         {
           gifts.map((item, index) => (
-            <li className={`flex-1 py-3 mx-3 flex flex-col items-center justify-center cursor-pointer
+            <li className={`py-3 mx-3 flex flex-col items-center justify-center cursor-pointer
             hover:scale-110 transition-transform duration-300 
-            hover:shadow-lg rounded-lg
+            hover:shadow-lg rounded-lg min-w-28
             hover:bg-gray-800`} key={index}>
               <Image alt='gift' width={45} height={45} src={item.image}></Image>
               <p className='text-gray-400 text-sm text-center my-2'>{item.name}</p>

@@ -149,6 +149,12 @@ const useStreaming = ({
             const stream = new MediaStream([consumer.track]);
             if (videoRef) {
               videoRef.current!.srcObject = stream;
+              // 监听视频加载状态
+              videoRef.current!.onloadedmetadata = () => {
+                // 为了避免浏览器禁止没有交互不让播放视频的限制，这里设置静音播放
+                videoRef.current!.muted = true;
+                videoRef.current?.play().catch(console.error);
+              };
               try {
                 // await videoRef.current.play();
               } catch (error: any) {

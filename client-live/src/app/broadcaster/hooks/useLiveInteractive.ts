@@ -134,11 +134,12 @@ export default function useLiveInteractive({
             const stream = new MediaStream([consumer.track]);
             if (interactiveVideoRef) {
               interactiveVideoRef.current!.srcObject = stream;
-              try {
-                // await videoRef.current.play();
-              } catch (error: any) {
-                console.error('视频播放错误:', error);
-              }
+              // 监听视频加载状态
+              interactiveVideoRef.current!.onloadedmetadata = () => {
+                // 为了避免浏览器禁止没有交互不让播放视频的限制，这里设置静音播放
+                interactiveVideoRef.current!.muted = true;
+                interactiveVideoRef.current?.play().catch(console.error);
+              };
             }
           } else if (kind === 'audio') {
             const stream = interactiveVideoRef.current?.srcObject as MediaStream;

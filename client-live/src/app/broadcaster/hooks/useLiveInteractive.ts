@@ -34,13 +34,13 @@ export default function useLiveInteractive({
         transportOptions: TransportOptions
       }) => {
         try {
-          if(!deviceRef) return;
           const transport = deviceRef.current!.createRecvTransport({
             id: data.transportOptions.id,
             iceParameters: data.transportOptions.iceParameters,
             iceCandidates: data.transportOptions.iceCandidates,
             dtlsParameters: data.transportOptions.dtlsParameters,
           });
+          console.log('主播端的consumer transport已经创建完成');
 
           transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
             try {
@@ -67,6 +67,14 @@ export default function useLiveInteractive({
         } catch (error) {
           console.error('Error creating send transport:', error);
           setError('Failed to create media transport');
+        }
+      },
+      'newProducer': async () => {
+        if (recvTransportRef.current) {
+          wsRef?.emit('getProducers', {
+            roomId,
+            clientId: recvClientId.current
+          });
         }
       },
       // 这里订阅的是观看端的音频流
@@ -102,6 +110,9 @@ export default function useLiveInteractive({
       }) => {
         try {
           const { id, producerId, kind, rtpParameters } = data;
+          console.log(55555, 'data: ', data);
+          console.log(interactiveVideoRef.current, 'kind: ', kind);
+
           const consumer = await recvTransportRef.current?.consume({
             id,
             producerId,
@@ -110,6 +121,7 @@ export default function useLiveInteractive({
             paused: false
           });
           consumersRef.current.set(id, consumer);
+          console.log('set: ', 22222);
 
           if (kind === 'video') {
             const stream = new MediaStream([consumer.track]);
@@ -146,14 +158,6 @@ export default function useLiveInteractive({
           });
         } catch (error: any) {
           console.error('设置消费者错误:', error);
-        }
-      },
-      'newProducer': async () => {
-        if (recvTransportRef.current) {
-          wsRef?.emit('getProducers', {
-            roomId,
-            clientId: recvClientId.current
-          });
         }
       },
       'livestreamStopped': async () => {
@@ -208,7 +212,6 @@ export default function useLiveInteractive({
   }
 
   return {
-    wsRef,
     interactiveInfo,
   };
 }

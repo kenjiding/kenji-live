@@ -46,18 +46,15 @@ export default function useInteractive({
     if (!wsRef || !isConnected) return;
     
     const events = {
-      'getRouterRtpCapabilities': async (data: { rtpCapabilities: RtpCapabilities }) => {
-        console.log(777, 'data: ', data);
-      },
       'interactiveAccepted': (data: any) => {
         // const transport = await createProducerTransport();
         console.log(1, '准备创建transport');
-        wsRef?.emit('createTransport', {
+        wsRef?.emit('createProduceTransport', {
           roomId,
           clientId: clientId.current,
         });
       },
-      'transportIsCreated': async (data: {
+      'produceTransportIsCreated': async (data: {
         transportOptions: TransportOptions,
         viewerSideType: string,
       }) => {
@@ -69,8 +66,6 @@ export default function useInteractive({
           if(!deviceRef.current?.loaded) {
             throw new Error('设备还没有加载成功');
           }
-          console.log(2, 'transport创建成功');
-
           const transport = deviceRef.current.createSendTransport({
             id: data.transportOptions.id,
             iceParameters: data.transportOptions.iceParameters,
@@ -88,8 +83,6 @@ export default function useInteractive({
                 roomId,
               };
               wsRef?.emit('connectTransport', params);
-              // 当服务端响应stransport连接后，观看端直接发起音频流produce
-              startStreaming();
               callback();
             } catch (error) {
               errback(error as Error);
@@ -123,6 +116,7 @@ export default function useInteractive({
           sendTransportRef.current = transport;
 
           if (sendTransportRef.current) {
+            startStreaming();
           }
         } catch (error: any) {
           console.error('创建传输错误:', error);

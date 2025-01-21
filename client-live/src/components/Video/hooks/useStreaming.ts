@@ -30,12 +30,6 @@ const useStreaming = ({
       roomId
     });
     const events = {
-      // 'connect': () => {
-      //   console.log('观看端 ws连接成功connect: ');
-      //   wsRef?.emit('viewerJionRoom', {
-      //     roomId
-      //   });
-      // },
       'getRouterRtpCapabilities': async (data: { rtpCapabilities: RtpCapabilities }) => {
         try {
           console.log('观看端 加入room 成功');
@@ -101,8 +95,7 @@ const useStreaming = ({
       },
       'transportConnected': async (data: {
         viewers: number
-      }) => {
-      },
+      }) => {},
       'newProducer': async () => {
         if (recvTransportRef.current) {
           wsRef?.emit('getProducers', {

@@ -165,4 +165,13 @@ export class StreamingService implements OnModuleInit {
       throw error;
     }
   }
+
+  async createWebRTCRouter(data) {
+    const router = await this.getOrCreateRouter(data.roomId);
+    this.roomService.createPeer(data.clientId, data.roomId);
+    console.log('已经设置了cientID ', data.clientId);
+
+    // 创建webRTC传输通道
+    return await this.createWebRtcTransport(router, data.clientId);
+  }
 }

@@ -111,6 +111,30 @@ export class StreamingGateway
     console.log("主播已允许连麦,并发送事件给观看端");
   }
 
+  @SubscribeMessage('createProduceTransport')
+  async handleCreateConsumerTransport(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: {
+      roomId: string;
+      clientId: string;
+    },
+  ) {
+    // 创建webRTC传输通道
+    const transport = await this.streamingService.createWebRTCRouter(data);
+    console.log('Transport created for client:', data.clientId);
+
+    client.emit('produceTransportIsCreated',
+      {
+        transportOptions: {
+          id: transport.id,
+          iceParameters: transport.iceParameters,
+          iceCandidates: transport.iceCandidates,
+          dtlsParameters: transport.dtlsParameters,
+        },
+      },
+    );
+  }
   @SubscribeMessage('createTransport')
   async handleCreateTransport(
     @ConnectedSocket() client: Socket,
@@ -120,11 +144,8 @@ export class StreamingGateway
       clientId: string;
     },
   ) {
-    const router = await this.streamingService.getOrCreateRouter(data.roomId);
-    this.roomService.createPeer(data.clientId, data.roomId);
-
     // 创建webRTC传输通道
-    const transport = await this.streamingService.createWebRtcTransport(router, data.clientId);
+    const transport = await this.streamingService.createWebRTCRouter(data);
     console.log('Transport created for client:', data.clientId);
 
     client.emit('transportIsCreated',
@@ -200,6 +221,7 @@ export class StreamingGateway
         consumer,
         producer,
       } = await this.streamingService.createConsume(data);
+      console.log(121212, 'streamingService: ');
       client.emit('consumerCreated',
         {
           id: consumer.id,

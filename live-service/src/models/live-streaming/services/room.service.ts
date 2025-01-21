@@ -84,7 +84,6 @@ export class RoomService {
     });
 
     const peer = this.peers.get(clientId);
-    console.log(clientId, 89000, this.peers);
     peer.producers.add(producer.id);
     this.producers.set(producer.id, producer);
     return producer;

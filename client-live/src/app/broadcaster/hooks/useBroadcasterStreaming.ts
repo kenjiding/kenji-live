@@ -57,8 +57,6 @@ export default function useBroadcasterStreaming({
             iceCandidates: data.transportOptions.iceCandidates,
             dtlsParameters: data.transportOptions.dtlsParameters,
           });
-          console.log(11, '主播 transport 已经连接完成: ');
-
           transportRef.current = transport;
           transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
             console.log('主播 transport 已经连接完成: ');

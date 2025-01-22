@@ -16,6 +16,7 @@ import {
 } from 'mediasoup/node/lib/types';
 import { StreamingService } from '../services/streaming.service';
 import { RoomService } from '../services/room.service';
+import { MediaService } from '../services/media.service';
 
 const MAX_ROOM_CAPACITY = 100;
 
@@ -40,8 +41,9 @@ export default abstract class BaseStreamingGateway
   webSocketServer: Server;
 
   constructor(
-    public readonly streamingService: StreamingService,
-    public readonly roomService: RoomService,
+    private readonly streamingService: StreamingService,
+    private readonly roomService: RoomService,
+    public readonly mediaService: MediaService,
   ) {
     this.logger = new Logger(this.loggerName);
   }
@@ -67,7 +69,7 @@ export default abstract class BaseStreamingGateway
       roomId: string;
     },
   ) {
-    const router = await this.streamingService.getOrCreateRouter(data.roomId);
+    const router = await this.mediaService.getOrCreateRouter(data.roomId);
     await this.joinRoom(data.roomId, client);
     // 首先通知创建者房间创建成功
     client.emit('roomCreated', {
@@ -150,6 +152,8 @@ export default abstract class BaseStreamingGateway
         producer,
       } = await this.streamingService.createConsume(data);
       if(!consumer || !producer) throw new Error('Failed to create consumer');
+      await this.mediaService.handleConsumerCreation(consumer);
+
       client.emit('consumerCreated',
         {
           id: consumer.id,
@@ -194,6 +198,8 @@ export default abstract class BaseStreamingGateway
     },
   ) {
     const producer = await this.roomService.createProduce(data);
+    await this.mediaService.handleProducerCreation(producer);
+
     // 向创建 producer 的客户端发送确认
     client.emit('producerCreated', {
       producerId: producer.id,

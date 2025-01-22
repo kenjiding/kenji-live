@@ -13,7 +13,7 @@ import { Peer } from '../interfaces';
 
 @Injectable()
 export class RoomService {
-  private rooms: Map<string, Router> = new Map();
+  public rooms: Map<string, Router> = new Map();
   public producers: Map<string, Producer> = new Map();
   public consumers: Map<string, Consumer> = new Map();
   public transports: Map<string, WebRtcTransport> = new Map();

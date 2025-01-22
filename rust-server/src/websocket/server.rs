@@ -60,7 +60,6 @@ impl WebsocketServer {
                       if let Ok(data_str) = serde_json::to_string(&ws_data) {
                         websokcet.send(Message::Text(data_str)).await.unwrap();
                       }
-                      
                     },
                     Message::Ping(ping) => {
                       if let Err(e) = websokcet.send(Message::Pong(ping)).await {
@@ -82,7 +81,6 @@ impl WebsocketServer {
                   break;
                 }
               }
-
             }
           },
           Err(e) => {

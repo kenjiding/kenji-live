@@ -14,7 +14,7 @@ const RecommendLives: React.FC<RecommendLivesProps> = (props) => {
       <div className='grid grid-cols-4 gap-4 place-items-center'>
         {recommendList.map((item, index) => (
           <div
-            className='w-full h-full flex flex-col items-center justify-center relative cursor-pointer'
+            className='w-full h-full flex flex-col items-center justify-center relative cursor-pointer min-w-32'
             key={index}
           >
             {/* <div className='absolute inset-0 bg-white/20 backdrop-blur-md rounded-lg'></div> */}

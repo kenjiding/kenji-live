@@ -32,12 +32,21 @@ export function LiveProvider({ children, roomId, url }: LiveProviderProps) {
     // 创建 WebSocket 连接
     const ws = io('http://192.168.1.105:3001/live/streaming', {
       path: '/socket.io',
+      reconnection: true,
+      reconnectionAttempts: Infinity, // 无限重试
+      reconnectionDelay: 1000,   // 初始重连延迟1秒
+      reconnectionDelayMax: 5000, // 最大重连延迟5秒
+      randomizationFactor: 0.5, 
       transports: ['websocket', 'polling']
     });
 
-
     const wsInterative = io('http://192.168.1.105:3001/live/interactive', {
       path: '/socket.io',
+      reconnection: true,
+      reconnectionAttempts: Infinity, // 无限重试
+      reconnectionDelay: 1000,   // 初始重连延迟1秒
+      reconnectionDelayMax: 5000, // 最大重连延迟5秒
+      randomizationFactor: 0.5, 
       transports: ['websocket', 'polling']
     });
     

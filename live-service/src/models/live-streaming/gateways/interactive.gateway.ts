@@ -7,15 +7,27 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import BaseStreamingGateway from './base.gateway';
+import { MediaService } from '../services/media.service';
+import { StreamingService } from '../services/streaming.service';
+import { RoomService } from '../services/room.service';
+
 @WebSocketGateway({
   namespace: '/live/interactive',
 })
 export class InteractiveGateway extends BaseStreamingGateway {
 
-  protected readonly loggerName = 'InteractiveStreamingGateway';
-
   @WebSocketServer()
   webSocketServer: Server;
+
+  protected readonly loggerName = 'InteractiveStreamingGateway';
+  
+  constructor(
+    streamingService: StreamingService,
+    roomService: RoomService,
+    mediaService: MediaService
+  ) {
+    super(streamingService, roomService, mediaService);
+  }
 
   async handleConnection(@ConnectedSocket() client: Socket) {
     this.logger.log(`连麦客户端连接成功: ${client.id}`);
@@ -48,7 +60,7 @@ export class InteractiveGateway extends BaseStreamingGateway {
       userId: string;
     },
   ) {
-    const router = await this.streamingService.getOrCreateRouter(data.roomId);
+    const router = await this.mediaService.getOrCreateRouter(data.roomId);
     client.broadcast.to(data.roomId).emit('interactiveAccepted', {
       routerRtpCapabilities: router.rtpCapabilities
     });

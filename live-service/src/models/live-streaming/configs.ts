@@ -43,6 +43,7 @@ export const webRtcTransportOptions = {
   enableUdp: true,
   enableTcp: true,
   preferUdp: true,
+  enableSctp: true,
   initialAvailableOutgoingBitrate: 1000000,  // 增加初始比特率
   minimumAvailableOutgoingBitrate: 600000,   // 增加最小比特率
 };

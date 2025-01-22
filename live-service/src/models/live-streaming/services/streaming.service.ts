@@ -1,89 +1,19 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import * as mediasoup from 'mediasoup';
-import {
-  Worker,
-  RtpCodecCapability,
-} from 'mediasoup/node/lib/types';
-import { mediaCodecs, webRtcTransportOptions } from '../configs';
-import { Router } from 'mediasoup/node/lib/types';
 import { RoomService } from './room.service';
+import { MediaService } from './media.service';
 
 @Injectable()
 export class StreamingService implements OnModuleInit {
-  private worker: Worker;
-  private readonly mediaCodecs: RtpCodecCapability[] = mediaCodecs;
-
   constructor(
     private readonly roomService: RoomService,
+    private readonly mediaService: MediaService,
   ) {}
   
   async onModuleInit() {
-    await this.createMediasoupWorker();
+    await this.mediaService.createWorkers();
   }
 
-  async createMediasoupWorker() {
-    try {
-      if (!this.worker) {
-        this.worker = await mediasoup.createWorker({
-          logLevel: 'debug',
-          rtcMinPort: 10000,
-          rtcMaxPort: 10100,
-        });
-
-        // add worker event listeners
-        this.worker.on('died', () => {
-          console.error('mediasoup worker died');
-          this.worker = null;
-        });
-      }
-      console.log('Mediasoup worker created [pid:%d]', this.worker.pid);
-    } catch (error) {
-      console.error('Failed to create Mediasoup worker:', error);
-      throw error;
-    }
-  }
-
-  async createWebRtcTransport(router: Router, clientId: string) {
-    const transport = await router.createWebRtcTransport(
-      webRtcTransportOptions,
-    );
-
-    transport.on('dtlsstatechange', (dtlsState) => {
-      if (dtlsState === 'closed' || dtlsState === 'failed') {
-        transport.close();
-      }
-    });
-
-    transport.observer.on('close', () => {
-      console.log('Transport closed');
-      this.roomService.transports.delete(transport.id);
-      const peer = this.roomService.peers.get(clientId);
-      if (peer) {
-        peer.transports.delete(transport.id);
-      }
-    });
-    this.roomService.transports.set(transport.id, transport);
-
-    const peer = this.roomService.peers.get(clientId);
-    if (peer) {
-      peer.transports.add(transport.id);
-    }
-
-    return transport;
-  }
-
-  async getOrCreateRouter(roomId) {
-    let router = this.roomService.getRoom(roomId);
-    if (!router) {
-      router = await this.getMediaCodecsRouters();
-      this.roomService.setRoom(roomId, router);
-      console.log('Created new router for room:', roomId);
-      return router;
-    }
-    return router;
-  }
-
-  async createConsume({
+  public async createConsume({
     roomId,
     clientId,
     producerId,
@@ -127,7 +57,7 @@ export class StreamingService implements OnModuleInit {
     }
   }
 
-  async connectTransport({
+  public async connectTransport({
     transportId,
     roomId,
     dtlsParameters,
@@ -156,22 +86,13 @@ export class StreamingService implements OnModuleInit {
     });
   }
 
-  async getMediaCodecsRouters() {
-    try {
-      await this.createMediasoupWorker();
-      return await this.worker.createRouter({ mediaCodecs: this.mediaCodecs });
-    } catch (error) {
-      console.error('Failed to create router:', error);
-      throw error;
-    }
-  }
-
-  async createWebRTCRouter(data) {
-    const router = await this.getOrCreateRouter(data.roomId);
+  public async createWebRTCRouter(data) {
+    const router = await this.mediaService.getOrCreateRouter(data.roomId);
     this.roomService.createPeer(data.clientId, data.roomId);
     console.log('已经设置了cientID ', data.clientId);
 
     // 创建webRTC传输通道
-    return await this.createWebRtcTransport(router, data.clientId);
+    return await this.mediaService.createWebRtcTransport(router, data.clientId);
   }
+
 }

@@ -28,9 +28,11 @@ export function LiveProvider({ children, roomId, url }: LiveProviderProps) {
   const wsRef = useRef<Socket | null>(null);
   const wsInterativeRef = useRef<Socket | null>(null);
 
+  const HOST = process.env.NEXT_PUBLIC_SERVER_IP + ':' + process.env.NEXT_PUBLIC_SERVER_PORT;
+
   useEffect(() => {
     // 创建 WebSocket 连接
-    const ws = io('http://192.168.1.105:3001/live/streaming', {
+    const ws = io(`http://${HOST}/live/streaming`, {
       path: '/socket.io',
       reconnection: true,
       reconnectionAttempts: Infinity, // 无限重试
@@ -40,7 +42,7 @@ export function LiveProvider({ children, roomId, url }: LiveProviderProps) {
       transports: ['websocket', 'polling']
     });
 
-    const wsInterative = io('http://192.168.1.105:3001/live/interactive', {
+    const wsInterative = io(`http://${HOST}/live/interactive`, {
       path: '/socket.io',
       reconnection: true,
       reconnectionAttempts: Infinity, // 无限重试

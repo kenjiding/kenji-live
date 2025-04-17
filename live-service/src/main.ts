@@ -13,7 +13,7 @@ async function bootstrap() {
   });
 
   const configService = app.get(ConfigService);
-  const port = configService.get<number>('PORT', 3001);
+  const port = configService.get<number>('SERVER_PORT', 3001);
 
   await app.listen(port, () => {
     console.log(`HTTP服务器运行在: http://localhost:${port}`);

@@ -118,6 +118,7 @@ export class MediaService {
     return transport;
   }
 
+  // 根据网络状况动态调整码率
   private setupBitrateMonitoring(transport: Transport) {
     let lastBitrate = 600000;
     
@@ -133,7 +134,6 @@ export class MediaService {
         if (!transportStats) return;
 
         const newBitrate = await this.adjustBitrate(transport, transportStats, lastBitrate);
-        console.log('newBitrate: ', newBitrate);
         lastBitrate = newBitrate;
       } catch (error) {
         console.error('Bitrate monitoring error:', error);

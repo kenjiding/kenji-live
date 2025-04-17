@@ -1,7 +1,5 @@
 import { RefObject, useEffect, useRef } from 'react';
 import { Device } from 'mediasoup-client';
-import { useParams } from 'next/navigation';
-import { io, Socket } from 'socket.io-client';
 import { RtpCapabilities, TransportOptions, RtpParameters, Producer, Transport } from 'mediasoup-client/lib/types';
 import { TransportConnectedSuccess } from '@/types/room.types';
 import { useLiveContext } from '@/hooks/useLiveContext';
@@ -107,6 +105,8 @@ const useStreaming = ({
         producers: Producer[]
       }) => {
         try {
+          console.log('data.producers: ', data.producers);
+
           if (!data.producers || data.producers.length === 0) {
             return;
           }
@@ -134,8 +134,6 @@ const useStreaming = ({
       }) => {
         try {
           const { id, producerId, kind, rtpParameters } = data;
-          console.log('kind: ', kind);
-
           const consumer = await recvTransportRef.current?.consume({
             id,
             producerId,
@@ -143,7 +141,9 @@ const useStreaming = ({
             rtpParameters,
             paused: false
           });
-          consumersRef.current.set(id, consumer);
+          if (!consumersRef.current.has(id)) {
+            consumersRef.current.set(id, consumer);
+          }
 
           if (kind === 'video') {
             const stream = new MediaStream([consumer.track]);
@@ -173,6 +173,8 @@ const useStreaming = ({
             }
           }
 
+          consumer.removeAllListeners('trackended');
+          consumer.removeAllListeners('transportclose');
           consumer.on('trackended', () => {
             consumer.close();
             consumersRef.current.delete(id);

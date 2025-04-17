@@ -1,23 +1,42 @@
 "use client";
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { Device } from 'mediasoup-client';
 import { useParams } from 'next/navigation';
-import { io, Socket } from 'socket.io-client';
-import { RtpCapabilities, TransportOptions, RtpParameters, Producer, Transport } from 'mediasoup-client/lib/types';
 import useLive from '../hooks/useLive';
 import { useLiveContext } from '@/hooks/useLiveContext';
-import TooltipWrapper from '@/components/TooltipWrapper';
-import { CircleMinus, RefreshCcw, Forward, Ellipsis, CirclePlus } from 'lucide-react';
+import { 
+  Video, 
+  Mic, 
+  MicOff, 
+  VideoOff, 
+  Users, 
+  X, 
+  RefreshCw, 
+  Check, 
+  Link2, 
+  Settings,
+  Play
+} from 'lucide-react';
+
+// 定义接口类型
+interface InteractiveInfo {
+  userId: string | null;
+  [key: string]: any;
+}
 
 export default function Broadcaster() {
-  const { roomId } = useParams();
+  const { roomId } = useParams<{ roomId: string }>();
   const { ws: wsRef, wsInterativeRef, isConnected, emit } = useLiveContext();
-  const [isStreaming, setIsStreaming] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const interactiveVideoRef = useRef<HTMLVideoElement>(null);
+  const [isStreaming, setIsStreaming] = useState<boolean>(false);
+  const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [isVideoOff, setIsVideoOff] = useState<boolean>(false);
+  const [requestNotification, setRequestNotification] = useState<boolean>(false);
+  
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const interactiveVideoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const deviceRef = useRef<Device | null>(null);
-  const [isInteractive, setIsInteractive] = useState(false);
+  const [isInteractive, setIsInteractive] = useState<boolean>(false);
 
   const {
     transportRef,
@@ -30,6 +49,18 @@ export default function Broadcaster() {
     interactiveVideoRef: interactiveVideoRef
   });
 
+  // 显示连麦请求通知
+  useEffect(() => {
+    if (interactiveInfo.userId) {
+      setRequestNotification(true);
+      // 5秒后自动隐藏通知
+      const timer = setTimeout(() => {
+        setRequestNotification(false);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [interactiveInfo.userId]);
+
   const startStreaming = async () => {
     try {
       if (!deviceRef.current?.canProduce('video')) {
@@ -41,20 +72,17 @@ export default function Broadcaster() {
 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          // width: { ideal: 1920 },
-          // height: { ideal: 1080 },
-          // frameRate: { ideal: 30 }
           width: { ideal: 720 },
-          height: { ideal: 1280 },  // 竖屏比例 9:16
+          height: { ideal: 1280 },
           aspectRatio: { ideal: 0.5625 },
         },
         audio: {
-          noiseSuppression: true,   // 消除背景噪音
-          echoCancellation: true,   // 回声抑制
-          autoGainControl: true,    // 自动增益控制
-          sampleRate: 48000,        // 采样率（Hz）
-          sampleSize: 16,           // 采样精度（bits）
-          channelCount: 2,          // 声道数量（1 为单声道，2 为立体声）
+          noiseSuppression: true,
+          echoCancellation: true,
+          autoGainControl: true,
+          sampleRate: 48000,
+          sampleSize: 16,
+          channelCount: 2,
         }
       });
 
@@ -65,24 +93,26 @@ export default function Broadcaster() {
       }
 
       const transport = transportRef.current;
-      console.log('transport: ', transport);
 
       if (!transport) {
         throw new Error('Transport not ready');
       }
 
-      // 创建视频 Producer 并保存引用
+      // 创建视频 Producer
       const videoTrack = stream.getVideoTracks()[0];
+      if (!videoTrack) {
+        throw new Error('No video track available');
+      }
+      
       const videoProducer = await transport.produce({
         kind: 'video',
-        track: videoTrack,  // 媒体轨道
+        track: videoTrack,
         rtpParameters: {
           codecs: [
             {
               mimeType: 'video/H264',
               clockRate: 90000,
               parameters: {
-                // 编码参数
                 'profile-level-id': '42e01f',
                 'x-google-start-bitrate': 1000
               }
@@ -98,7 +128,6 @@ export default function Broadcaster() {
         }
       });
 
-      // 设置视频生产者的事件监听
       videoProducer.on('transportclose', () => {
         console.log('Video producer transport closed');
         videoProducer.close();
@@ -109,8 +138,12 @@ export default function Broadcaster() {
         videoProducer.close();
       });
 
-      // 创建音频 Producer 并保存引用
+      // 创建音频 Producer
       const audioTrack = stream.getAudioTracks()[0];
+      if (!audioTrack) {
+        throw new Error('No audio track available');
+      }
+      
       const audioProducer = await transport.produce({
         track: audioTrack,
         codecOptions: {
@@ -121,7 +154,6 @@ export default function Broadcaster() {
         }
       });
 
-      // 设置音频生产者的事件监听
       audioProducer.on('transportclose', () => {
         console.log('Audio producer transport closed');
         audioProducer.close();
@@ -132,25 +164,22 @@ export default function Broadcaster() {
         audioProducer.close();
       });
 
-      // 保存生产者引用
       producersRef.current.set('video', videoProducer);
       producersRef.current.set('audio', audioProducer);
 
       setIsStreaming(true);
-    } catch (error: any) {
-      console.error('Error starting stream:', error);
+    } catch (error) {
+      console.error('Error starting stream:', error instanceof Error ? error.message : 'Unknown error');
     }
   };
 
   const stopStreaming = async () => {
     try {
-      // 停止所有媒体轨道
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track: any) => track.stop());
+        streamRef.current.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
       }
 
-      // 关闭视频和音频 Producers
       const videoProducer = producersRef.current.get('video');
       const audioProducer = producersRef.current.get('audio');
 
@@ -164,163 +193,266 @@ export default function Broadcaster() {
         producersRef.current.delete('audio');
       }
 
-      // 清空视频播放
       if (videoRef.current) {
         videoRef.current.srcObject = null;
       }
 
-      // 向服务器发送停止直播的消息
       wsRef?.emit('stopStreaming', {
         roomId,
       });
 
-      // 重置状态
       setIsStreaming(false);
     } catch (error) {
-      console.error('Error stopping stream:', error);
+      console.error('Error stopping stream:', error instanceof Error ? error.message : 'Unknown error');
+    }
+  };
+
+  const toggleMute = () => {
+    if (streamRef.current) {
+      const audioTracks = streamRef.current.getAudioTracks();
+      audioTracks.forEach((track) => {
+        track.enabled = isMuted;
+      });
+      setIsMuted(!isMuted);
+    }
+  };
+
+  const toggleVideo = () => {
+    if (streamRef.current) {
+      const videoTracks = streamRef.current.getVideoTracks();
+      videoTracks.forEach((track) => {
+        track.enabled = isVideoOff;
+      });
+      setIsVideoOff(!isVideoOff);
     }
   };
 
   const allowInteractive = () => {
-    wsInterativeRef?.emit('allowInteractive', { roomId });
-    console.log('主播允许连麦');
-  }
+    if (wsInterativeRef) {
+      wsInterativeRef.emit('allowInteractive', { roomId });
+      console.log('主播允许连麦');
+      setRequestNotification(false);
+      setIsInteractive(true);
+    }
+  };
+
+  const endInteractive = () => {
+    // 实现结束连麦的逻辑
+    if (wsInterativeRef) {
+      wsInterativeRef.emit('endInteractive', { roomId });
+      setIsInteractive(false);
+    }
+  };
+
+  const refreshStream = async () => {
+    // 实现刷新流的逻辑
+    if (streamRef.current) {
+      const videoTrack = streamRef.current.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.stop();
+        try {
+          // 重新获取媒体流
+          const newStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 720 },
+              height: { ideal: 1280 },
+              aspectRatio: { ideal: 0.5625 },
+            }
+          });
+          
+          const newVideoTrack = newStream.getVideoTracks()[0];
+          if (newVideoTrack && streamRef.current) {
+            // 使用旧的音频轨道
+            const oldAudioTracks = streamRef.current.getAudioTracks();
+            
+            // 创建一个新的MediaStream
+            const combinedStream = new MediaStream();
+            
+            // 添加新的视频轨道
+            combinedStream.addTrack(newVideoTrack);
+            
+            // 添加旧的音频轨道
+            oldAudioTracks.forEach(track => {
+              combinedStream.addTrack(track);
+            });
+            
+            // 更新流引用
+            streamRef.current = combinedStream;
+            
+            // 更新视频源
+            if (videoRef.current) {
+              videoRef.current.srcObject = combinedStream;
+            }
+            
+            // 更新视频Producer
+            const videoProducer = producersRef.current.get('video');
+            if (videoProducer) {
+              await videoProducer.replaceTrack({ track: newVideoTrack });
+            }
+          }
+        } catch (error) {
+          console.error('Error refreshing video stream:', error instanceof Error ? error.message : 'Unknown error');
+        }
+      }
+    }
+  };
 
   return (
-    <>
-
-      <div className='relative group'>
-        {/* 主播视频容器 */}
-        <div className="mb-4 flex">
-          {/* 左侧主播视频 - flex-1 使其平分宽度 */}
-          <div className={`relative flex-1 flex ${isInteractive ? 'justify-end mr-1' : 'justify-center'}`}>
-            <div className='absolute top-0 left-0 w-full pt-3 p-3 pl-5 pr-5'>
-              <span className='text-sm text-red-500 py-1 px-2 bg-slate-200 opacity-70'>{isStreaming ? '正在直播' : '未开播'}</span>
+    <div className="flex flex-col h-full max-h-screen bg-gray-900 p-4">
+      {/* 状态行和连麦请求通知 */}
+      <div className="flex justify-between items-center mb-2">
+        {/* 直播状态指示器 */}
+        <div className="flex items-center">
+          {isStreaming && (
+            <div className="flex items-center">
+              <div className="h-3 w-3 bg-red-500 rounded-full mr-2 animate-pulse"></div>
+              <span className="text-white text-sm font-medium">直播中</span>
             </div>
+          )}
+        </div>
+        
+        {/* 连麦请求通知 - 小型内联显示 */}
+        {requestNotification && interactiveInfo.userId && (
+          <div className="flex items-center bg-blue-600 text-white py-1 px-3 rounded-lg text-sm">
+            <Users size={16} className="mr-1" />
+            <span className="mr-2">{interactiveInfo.userId} 请求连麦</span>
+            <div className="flex space-x-1">
+              <button 
+                onClick={() => setRequestNotification(false)}
+                className="p-1 rounded-full hover:bg-blue-700"
+              >
+                <X size={14} />
+              </button>
+              <button 
+                onClick={allowInteractive}
+                className="p-1 rounded-full hover:bg-green-600"
+              >
+                <Check size={14} />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 主要内容区 - 视频容器和控制按钮 */}
+      <div className="flex flex-col items-center">
+        {/* 视频容器 - 减小高度 */}
+        <div className="relative w-full max-w-md flex justify-center mb-3">
+          <div className={`relative ${isInteractive ? 'w-1/2 pr-1' : 'w-full'}`}>
             <video
               ref={videoRef}
               autoPlay
               playsInline
-              className="bg-black w-[270px] h-[480px] object-contain"
-              style={{
-                border: '1px solid #ccc',
-                aspectRatio: '9/16'
-              }}
+              className={`bg-black w-full rounded-lg shadow-lg ${isVideoOff ? 'opacity-60' : ''}`}
+              style={{ maxHeight: '60vh', aspectRatio: '9/16' }}
             />
+            {isVideoOff && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="bg-gray-900 bg-opacity-70 p-3 rounded-full">
+                  <VideoOff size={32} className="text-white" />
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* 右侧连麦视频 - flex-1 使其平分宽度 */}
-          {(
-            <div className="flex-1 flex justify-start">
-              <video
-                ref={interactiveVideoRef}
-                autoPlay
-                playsInline
-                className="bg-black w-[270px] h-[480px] object-contain"
-                style={{
-                  border: '1px solid #ccc',
-                  aspectRatio: '9/16'
-                }}
-              />
+          {isInteractive && interactiveInfo.userId && (
+            <div className="w-1/2 pl-1">
+              <div className="relative">
+                <video
+                  ref={interactiveVideoRef}
+                  autoPlay
+                  playsInline
+                  className="bg-black w-full rounded-lg shadow-lg"
+                  style={{ maxHeight: '60vh', aspectRatio: '9/16' }}
+                />
+                <div className="absolute bottom-2 left-2 bg-black bg-opacity-60 text-white px-2 py-1 text-xs rounded">
+                  {interactiveInfo.userId}
+                </div>
+              </div>
             </div>
           )}
         </div>
 
-        {/* 控制按钮 */}
-        <div className='absolute flex w-full bottom-0 left-0 opacity-0
-        group-hover:opacity-100 transition-opacity duration-300
-        p-3'>
-          <div className='flex-1 flex items-center cursor-pointer'>
-            <TooltipWrapper text='刷新'>
-              <RefreshCcw />
-            </TooltipWrapper>
-          </div>
-          <div className='flex-1 flex justify-end cursor-pointer'>
-            {isInteractive ?
-              <TooltipWrapper text='退出连麦'>
-                <CircleMinus />
-              </TooltipWrapper>
-              :
-              <TooltipWrapper text='连麦'>
-                <CirclePlus onClick={() => { }} />
-              </TooltipWrapper>
-            }
-          </div>
-        </div>
-
-      </div>
-      { 
-          interactiveInfo.userId && <div>
-            <button
-              onClick={allowInteractive}
-              className="px-4 py-2 bg-blue-500 text-white rounded disabled:bg-gray-400"
+        {/* 结合所有控制功能到一个控制面板 */}
+        <div className="w-full max-w-md bg-gray-800 bg-opacity-90 rounded-lg p-3 mb-3">
+          {/* 主要控制按钮行 */}
+          <div className="flex justify-between items-center">
+            <button 
+              onClick={toggleMute} 
+              className="flex flex-col items-center p-2 hover:bg-gray-700 rounded-lg transition-colors"
             >
-              {`${interactiveInfo.userId} 请求连麦`}
+              {isMuted ? <MicOff className="text-red-500 mb-1" size={20} /> : <Mic className="text-white mb-1" size={20} />}
+              <span className="text-xs text-gray-300">{isMuted ? '取消静音' : '静音'}</span>
+            </button>
+            
+            <button 
+              onClick={toggleVideo} 
+              className="flex flex-col items-center p-2 hover:bg-gray-700 rounded-lg transition-colors"
+            >
+              {isVideoOff ? <VideoOff className="text-red-500 mb-1" size={20} /> : <Video className="text-white mb-1" size={20} />}
+              <span className="text-xs text-gray-300">{isVideoOff ? '开启视频' : '关闭视频'}</span>
+            </button>
+            
+            <button 
+              onClick={refreshStream} 
+              className="flex flex-col items-center p-2 hover:bg-gray-700 rounded-lg transition-colors"
+            >
+              <RefreshCw className="text-white mb-1" size={20} />
+              <span className="text-xs text-gray-300">刷新</span>
+            </button>
+            
+            {isInteractive ? (
+              <button 
+                onClick={endInteractive} 
+                className="flex flex-col items-center p-2 hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                <X className="text-red-400 mb-1" size={20} />
+                <span className="text-xs text-gray-300">结束连麦</span>
+              </button>
+            ) : (
+              <button 
+                onClick={() => setRequestNotification(true)} 
+                className="flex flex-col items-center p-2 hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                <Link2 className="text-white mb-1" size={20} />
+                <span className="text-xs text-gray-300">连麦</span>
+              </button>
+            )}
+            
+            <button 
+              className="flex flex-col items-center p-2 hover:bg-gray-700 rounded-lg transition-colors"
+            >
+              <Settings className="text-white mb-1" size={20} />
+              <span className="text-xs text-gray-300">设置</span>
             </button>
           </div>
-        }
-      <div className='mt-32'>
-          <button
-            onClick={isStreaming ? stopStreaming : startStreaming}
-            disabled={!isConnected}
-            className="px-4 py-2 bg-blue-500 text-white rounded disabled:bg-gray-400"
-          >
-            {isStreaming ? '停止直播' : '开始直播'}
-          </button>
+          
+          {/* 开始/停止直播按钮 */}
+          <div className="mt-3 flex justify-center">
+            <button
+              onClick={isStreaming ? stopStreaming : startStreaming}
+              disabled={!isConnected}
+              className={`w-full py-2 rounded-lg font-medium transition-all duration-300 ${
+                isStreaming 
+                  ? 'bg-red-600 hover:bg-red-700 text-white' 
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              } disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center`}
+            >
+              {isStreaming ? (
+                <>
+                  <X size={18} className="mr-2" />
+                  <span>结束直播</span>
+                </>
+              ) : (
+                <>
+                  <Play size={18} className="mr-2" />
+                  <span>开始直播</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
-    </>
-    // <div className="p-10">
-    //   <h1 className="text-2xl mb-4">主播端</h1>
-    //   <div className="w-3/4 m-auto mb-4 flex justify-center relative">
-    //     <div className='absolute top-0 left-0 w-full pt-3 p-3 pl-5 pr-5'>
-    //       <span className='text-sm text-red-500 py-1 px-2 bg-slate-200 opacity-70'>{ isStreaming ? '正在直播' : '未开播'}</span>
-    //       {/* <span className='text-sm text-blue-800 py-1 px-2 bg-orange-300 ml-3'>观看: {viewers}</span> */}
-    //     </div>
-    //     <video
-    //       ref={videoRef}
-    //       autoPlay
-    //       playsInline
-    //       muted
-    //       className="w-full bg-black"
-    //     />
-    //   </div>
-
-    //   <div>
-    //       <button
-    //         onClick={isStreaming ? stopStreaming : startStreaming}
-    //         disabled={!isConnected}
-    //         className="px-4 py-2 bg-blue-500 text-white rounded disabled:bg-gray-400"
-    //       >
-    //         {isStreaming ? '停止直播' : '开始直播'}
-    //       </button>
-    //     </div>
-
-    //   <div className="w-3/4 m-auto mb-4 relative">
-    //     <h1 className='text-2xl'>连麦视频</h1>
-    //     <video
-    //       ref={interactiveVideoRef}
-    //       autoPlay
-    //       playsInline
-    //       muted
-    //       className="w-full bg-black"
-    //     />
-    //   </div>
-    //   <div className="flex gap-4 p-10">
-    //     <div className="mt-4 text-sm text-gray-600">
-    //       连接状态: {isConnected ? '已连接' : '未连接'}
-    //     </div>
-
-    //     { 
-    //       interactiveInfo.userId && <div>
-    //         <button
-    //           onClick={allowInteractive}
-    //           className="px-4 py-2 bg-blue-500 text-white rounded disabled:bg-gray-400"
-    //         >
-    //           {`${interactiveInfo.userId} 请求连麦`}
-    //         </button>
-    //       </div>
-    //     }
-    //   </div>
-    // </div>
+      </div>
+    </div>
   );
 }

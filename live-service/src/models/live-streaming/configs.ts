@@ -36,8 +36,8 @@ export const webRtcTransportOptions = {
   listenIps: [
     {
       ip: '0.0.0.0',
-      // announcedIp: '127.0.0.1',
-      announcedIp: '192.168.1.105',
+      announcedIp: '127.0.0.1',
+      // announcedIp: process.env.SERVER_IP,
     },
   ],
   enableUdp: true,
@@ -46,4 +46,22 @@ export const webRtcTransportOptions = {
   enableSctp: true,
   initialAvailableOutgoingBitrate: 1000000,  // 增加初始比特率
   minimumAvailableOutgoingBitrate: 600000,   // 增加最小比特率
+  iceServers: [
+    // { urls: "stun:stun.l.google.com:19302" },
+    {
+      urls: ["stun:oz-turn-2.xirsys.com"]
+    }, 
+    {
+      username: "eqbSG_Ufzgom4HHBbj9VvyQAZ1VuhKLthJ8BFAtQcAX-X10mRfjwkSHkf22EJ3oIAAAAAGeSXONrZW5qaUdN",
+      credential: "c67d07ac-d99c-11ef-8cba-0242ac120004",
+      urls: [
+        "turn:oz-turn-2.xirsys.com:80?transport=udp",
+        "turn:oz-turn-2.xirsys.com:3478?transport=udp",
+        "turn:oz-turn-2.xirsys.com:80?transport=tcp", 
+        "turn:oz-turn-2.xirsys.com:3478?transport=tcp", 
+        "turns:oz-turn-2.xirsys.com:443?transport=tcp",
+        "turns:oz-turn-2.xirsys.com:5349?transport=tcp"
+      ]
+    }
+  ]
 };

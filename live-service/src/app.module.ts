@@ -9,6 +9,10 @@ import { LiveStreamingModule } from './models/live-streaming/live-streaming.modu
       isGlobal: true,
       envFilePath: `.env.${process.env.NODE_ENV || 'development'}`,
     }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: `.env.${process.env.NODE_ENV || 'development'}`,
+    }),
     LiveStreamingModule
   ],
   controllers: [AppController],

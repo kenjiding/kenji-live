@@ -181,6 +181,7 @@ export default abstract class BaseStreamingGateway
     client.emit('producers',
       {
         producers: producerList,
+        from: 'getProducers'
       },
     );
   }

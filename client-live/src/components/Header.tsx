@@ -16,7 +16,7 @@ const Header: React.FC<HeaderProps> = (props) => {
       </div>
       <div className='flex-1 flex items-center justify-end'>
         <div className='py-1 px-4 bg-red-500 rounded-md mr-3 cursor-pointer'>
-          <a target='_blank' href="/broadcaster/123456">开播</a>
+          <a target='_blank' href="/broadcaster/123456">start broadcasting</a>
         </div>
         Login
       </div>

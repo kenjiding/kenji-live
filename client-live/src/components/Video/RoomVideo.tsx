@@ -101,11 +101,11 @@ export default function RoomVideo({
         </div>
         <div className='flex-1 flex justify-end cursor-pointer'>
           {isInteractive ?
-            <TooltipWrapper text='退出连麦'>
+            <TooltipWrapper text='End co-hosting'>
               <CircleMinus />
             </TooltipWrapper>
             :
-            <TooltipWrapper text='连麦'>
+            <TooltipWrapper text='Request to join'>
               <CirclePlus onClick={acceptInteractive} />
             </TooltipWrapper>
           }

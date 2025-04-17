@@ -306,7 +306,7 @@ export default function Broadcaster() {
           {isStreaming && (
             <div className="flex items-center">
               <div className="h-3 w-3 bg-red-500 rounded-full mr-2 animate-pulse"></div>
-              <span className="text-white text-sm font-medium">直播中</span>
+              <span className="text-white text-sm font-medium">living</span>
             </div>
           )}
         </div>
@@ -315,7 +315,7 @@ export default function Broadcaster() {
         {requestNotification && interactiveInfo.userId && (
           <div className="flex items-center bg-blue-600 text-white py-1 px-3 rounded-lg text-sm">
             <Users size={16} className="mr-1" />
-            <span className="mr-2">{interactiveInfo.userId} 请求连麦</span>
+            <span className="mr-2">{interactiveInfo.userId} Request to join</span>
             <div className="flex space-x-1">
               <button 
                 onClick={() => setRequestNotification(false)}
@@ -382,7 +382,7 @@ export default function Broadcaster() {
               className="flex flex-col items-center p-2 hover:bg-gray-700 rounded-lg transition-colors"
             >
               {isMuted ? <MicOff className="text-red-500 mb-1" size={20} /> : <Mic className="text-white mb-1" size={20} />}
-              <span className="text-xs text-gray-300">{isMuted ? '取消静音' : '静音'}</span>
+              <span className="text-xs text-gray-300">{isMuted ? 'Unmute' : 'Mute'}</span>
             </button>
             
             <button 
@@ -390,7 +390,7 @@ export default function Broadcaster() {
               className="flex flex-col items-center p-2 hover:bg-gray-700 rounded-lg transition-colors"
             >
               {isVideoOff ? <VideoOff className="text-red-500 mb-1" size={20} /> : <Video className="text-white mb-1" size={20} />}
-              <span className="text-xs text-gray-300">{isVideoOff ? '开启视频' : '关闭视频'}</span>
+              <span className="text-xs text-gray-300">{isVideoOff ? 'Start video' : 'Stop video'}</span>
             </button>
             
             <button 
@@ -398,7 +398,7 @@ export default function Broadcaster() {
               className="flex flex-col items-center p-2 hover:bg-gray-700 rounded-lg transition-colors"
             >
               <RefreshCw className="text-white mb-1" size={20} />
-              <span className="text-xs text-gray-300">刷新</span>
+              <span className="text-xs text-gray-300">refresh</span>
             </button>
             
             {isInteractive ? (
@@ -407,7 +407,7 @@ export default function Broadcaster() {
                 className="flex flex-col items-center p-2 hover:bg-gray-700 rounded-lg transition-colors"
               >
                 <X className="text-red-400 mb-1" size={20} />
-                <span className="text-xs text-gray-300">结束连麦</span>
+                <span className="text-xs text-gray-300">Leave call</span>
               </button>
             ) : (
               <button 
@@ -415,7 +415,7 @@ export default function Broadcaster() {
                 className="flex flex-col items-center p-2 hover:bg-gray-700 rounded-lg transition-colors"
               >
                 <Link2 className="text-white mb-1" size={20} />
-                <span className="text-xs text-gray-300">连麦</span>
+                <span className="text-xs text-gray-300">	Join call </span>
               </button>
             )}
             
@@ -423,7 +423,7 @@ export default function Broadcaster() {
               className="flex flex-col items-center p-2 hover:bg-gray-700 rounded-lg transition-colors"
             >
               <Settings className="text-white mb-1" size={20} />
-              <span className="text-xs text-gray-300">设置</span>
+              <span className="text-xs text-gray-300">Setting</span>
             </button>
           </div>
           
@@ -441,12 +441,12 @@ export default function Broadcaster() {
               {isStreaming ? (
                 <>
                   <X size={18} className="mr-2" />
-                  <span>结束直播</span>
+                  <span>End Live</span>
                 </>
               ) : (
                 <>
                   <Play size={18} className="mr-2" />
-                  <span>开始直播</span>
+                  <span>Start Live</span>
                 </>
               )}
             </button>

@@ -10,6 +10,7 @@ import BaseStreamingGateway from './base.gateway';
 import { MediaService } from '../services/media.service';
 import { StreamingService } from '../services/streaming.service';
 import { RoomService } from '../services/room.service';
+import { FFmpegService } from '../services/ffmpeg.service'; // 新增 FFmpegService
 
 @WebSocketGateway({
   namespace: '/live/interactive',
@@ -24,9 +25,10 @@ export class InteractiveGateway extends BaseStreamingGateway {
   constructor(
     streamingService: StreamingService,
     roomService: RoomService,
-    mediaService: MediaService
+    mediaService: MediaService,
+    FFmpegService: FFmpegService,
   ) {
-    super(streamingService, roomService, mediaService);
+    super(streamingService, roomService, mediaService, FFmpegService);
   }
 
   async handleConnection(@ConnectedSocket() client: Socket) {

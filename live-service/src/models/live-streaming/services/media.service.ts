@@ -1,7 +1,7 @@
 import * as os from 'os';
 import * as mediasoup from 'mediasoup';
 import { Injectable } from '@nestjs/common';
-import { Producer, Consumer, Transport, Router, Worker } from "mediasoup/node/lib/types";
+import { Producer, Consumer, Transport, Router, Worker, PlainTransport } from "mediasoup/node/lib/types";
 import { mediaCodecs, webRtcTransportOptions } from '../configs';
 import { RoomService } from './room.service';
 
@@ -18,8 +18,8 @@ export class MediaService {
     for (let i = 0; i < numWorkers; i++) {
       const worker = await mediasoup.createWorker({
         logLevel: 'warn',
-        rtcMinPort: 10000 + (i * 100),
-        rtcMaxPort: 10099 + (i * 100)
+        rtcMinPort: 10000 + (i * 1000), // 扩展端口范围
+        rtcMaxPort: 10999 + (i * 1000),
       });
 
       worker.on('died', () => {
@@ -28,17 +28,16 @@ export class MediaService {
       });
 
       this.workers.push(worker);
-      console.log(`Created worker ${i + 1}/${numWorkers}`);
+      console.log(`Created worker ${i + 1}/${numWorkers}, ports ${10000 + i * 1000}-${10999 + i * 1000}`);
     }
   }
-
 
   private async replaceDeadWorker(index: number) {
     try {
       const worker = await mediasoup.createWorker({
         logLevel: 'warn',
-        rtcMinPort: 10000 + (index * 100),
-        rtcMaxPort: 10099 + (index * 100)
+        rtcMinPort: 10000 + (index * 1000),
+        rtcMaxPort: 10999 + (index * 1000),
       });
 
       worker.on('died', () => {
@@ -47,27 +46,12 @@ export class MediaService {
       });
 
       this.workers[index] = worker;
-      // await this.redistributeRooms();
-
+      console.log(`Replaced worker ${index + 1}`);
     } catch (error) {
       console.error('Failed to replace dead worker:', error);
       setTimeout(() => this.replaceDeadWorker(index), 5000);
     }
   }
-
-  // private async redistributeRooms() {
-  //   const affectedRooms = Array.from(this.roomService.rooms.entries())
-  //     .filter(([_, router]) => router.worker.closed);
-      
-  //   for (const [roomId, _] of affectedRooms) {
-  //     try {
-  //       const router = await this.getOrCreateRouter(roomId);
-  //       this.roomService.setRoom(roomId, router);
-  //     } catch (error) {
-  //       console.error(`Failed to redistribute room ${roomId}:`, error);
-  //     }
-  //   }
-  // }
 
   public async getOrCreateRouter(roomId: string): Promise<Router> {
     let router = this.roomService.getRoom(roomId);
@@ -86,7 +70,7 @@ export class MediaService {
     return worker;
   }
 
-  public  async createWebRtcTransport(router: Router, clientId: string) {
+  public async createWebRtcTransport(router: Router, clientId: string) {
     const transport = await router.createWebRtcTransport(
       webRtcTransportOptions,
     );
@@ -118,7 +102,45 @@ export class MediaService {
     return transport;
   }
 
-  // 根据网络状况动态调整码率
+  public async createPlainRtpTransport(router: Router, roomId: string): Promise<PlainTransport> {
+    const plainTransport = await router.createPlainTransport({
+      listenIp: { ip: '0.0.0.0', announcedIp: '127.0.0.1' }, // 本地调试
+      rtcpMux: false,
+      comedia: true, // FFmpeg 使用主动模式
+    });
+
+    plainTransport.on('tuple', (tuple) => {
+      console.log(`PlainRtpTransport tuple assigned: ${JSON.stringify(tuple)}`);
+    });
+
+    plainTransport.on('@close', () => {
+      console.log(`PlainRtpTransport closed for room ${roomId}`);
+    });
+
+    return plainTransport;
+  }
+
+  public async connectPlainRtpTransport(plainTransport: PlainTransport, producer: Producer) {
+    try {
+      const consumer = await plainTransport.consume({
+        producerId: producer.id,
+        rtpCapabilities: {
+          codecs: mediaCodecs,
+        },
+        paused: false,
+        appData: {
+          roomId: producer.appData.roomId,
+          transportId: plainTransport.id, // 存储 Transport ID
+        },
+      });
+      console.log(`Consumer created for PlainRtpTransport: ${consumer.id}`);
+      return consumer;
+    } catch (error) {
+      console.error('Failed to consume on PlainRtpTransport:', error);
+      throw error;
+    }
+  }
+
   private setupBitrateMonitoring(transport: Transport) {
     let lastBitrate = 600000;
     
@@ -172,7 +194,6 @@ export class MediaService {
   }
 
   private async handleProducerScore(producer: Producer, score: any) {
-    // 基于分数调整传输质量
     if (score.score < 5) {
       const appData = producer.appData as { qualityIndex?: number };
       appData.qualityIndex = ((appData.qualityIndex as number) || 2) - 1;
@@ -182,7 +203,6 @@ export class MediaService {
   }
 
   public async handleConsumerCreation(consumer: Consumer) {
-    // 设置初始首选层
     await consumer.setPreferredLayers({ 
       spatialLayer: 2, 
       temporalLayer: 2 

@@ -1,13 +1,10 @@
-
 import { Injectable } from '@nestjs/common';
 import {
   WebRtcTransport,
   Producer,
   Consumer,
-  MediaKind,
-  RtpCapabilities,
-  RtpParameters,
-  Router
+  Router,
+  Transport,
 } from 'mediasoup/node/lib/types';
 import { Peer } from '../interfaces';
 
@@ -16,7 +13,7 @@ export class RoomService {
   public rooms: Map<string, Router> = new Map();
   public producers: Map<string, Producer> = new Map();
   public consumers: Map<string, Consumer> = new Map();
-  public transports: Map<string, WebRtcTransport> = new Map();
+  public transports: Map<string, Transport> = new Map(); // 支持 PlainRtpTransport
   public peers: Map<string, Peer> = new Map();
 
   getRoom(roomId) {
@@ -25,6 +22,40 @@ export class RoomService {
   
   setRoom(roomId, router) {
     this.rooms.set(roomId, router);
+  }
+
+  async closeRoomResources({ clientId, roomId }: { clientId: string; roomId: string }) {
+    const producersToRemove = Array.from(this.producers.values()).filter(
+      (producer) => producer.appData.clientId === clientId && producer.appData.roomId === roomId,
+    );
+    const consumersToRemove = Array.from(this.consumers.values()).filter(
+      (consumer) => consumer.appData?.roomId === roomId && producersToRemove.some((p) => p.id === consumer.producerId),
+    );
+    const transportsToRemove = Array.from(this.transports.values()).filter(
+      (transport) => transport.appData?.roomId === roomId,
+    );
+
+    producersToRemove.forEach((producer) => {
+      producer.close();
+      this.producers.delete(producer.id);
+      console.log(`Producer ${producer.id} closed for room ${roomId}`);
+    });
+
+    consumersToRemove.forEach((consumer) => {
+      consumer.close();
+      this.consumers.delete(consumer.id);
+      console.log(`Consumer ${consumer.id} closed for room ${roomId}`);
+    });
+
+    transportsToRemove.forEach((transport) => {
+      // const rtpPort = transport.tuple?.localPort;
+      // const rtcpPort = transport.rtcpTuple?.localPort;
+      transport.close();
+      this.transports.delete(transport.id);
+      // console.log(`Transport ${transport.id} closed for room ${roomId}, released ports RTP: ${rtpPort}, RTCP: ${rtcpPort}`);
+    });
+
+    return producersToRemove.map((p) => p.id);
   }
 
   createPeer(clientId, roomId) {
@@ -57,9 +88,29 @@ export class RoomService {
         producer.appData.roomId === roomId,
     );
 
+    // 关闭相关 Consumer 和 PlainRtpTransport
+    const consumersToRemove = Array.from(this.consumers.values()).filter(
+      (consumer) =>
+        consumer.appData?.roomId === roomId &&
+        producersToRemove.some((p) => p.id === consumer.producerId),
+    );
+
     producersToRemove.forEach((producer) => {
       producer.close();
       this.producers.delete(producer.id);
+    });
+
+    consumersToRemove.forEach((consumer) => {
+      const transportId = consumer.appData?.transportId as string | undefined;
+      if (transportId) {
+        const transport = this.transports.get(transportId);
+        if (transport) {
+          transport.close();
+          this.transports.delete(transportId);
+        }
+      }
+      consumer.close();
+      this.consumers.delete(consumer.id);
     });
 
     return producersToRemove.map((p) => p.id);
@@ -88,5 +139,4 @@ export class RoomService {
     this.producers.set(producer.id, producer);
     return producer;
   }
-
 }

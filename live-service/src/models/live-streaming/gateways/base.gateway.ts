@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import * as mediasoup from 'mediasoup';
 import {
   WebSocketGateway,
   SubscribeMessage,
@@ -17,6 +18,7 @@ import {
 import { StreamingService } from '../services/streaming.service';
 import { RoomService } from '../services/room.service';
 import { MediaService } from '../services/media.service';
+import { FFmpegService } from '../services/ffmpeg.service';
 
 const MAX_ROOM_CAPACITY = 100;
 
@@ -29,8 +31,6 @@ const MAX_ROOM_CAPACITY = 100;
 export default abstract class BaseStreamingGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
-
-  // 定义抽象方法，子类必须实现
   abstract handleConnection(client: Socket): Promise<void>;
   abstract handleDisconnect(client: Socket): Promise<void>;
 
@@ -44,6 +44,7 @@ export default abstract class BaseStreamingGateway
     private readonly streamingService: StreamingService,
     private readonly roomService: RoomService,
     public readonly mediaService: MediaService,
+    private readonly ffmpegService: FFmpegService,
   ) {
     this.logger = new Logger(this.loggerName);
   }
@@ -71,13 +72,11 @@ export default abstract class BaseStreamingGateway
   ) {
     const router = await this.mediaService.getOrCreateRouter(data.roomId);
     await this.joinRoom(data.roomId, client);
-    // 首先通知创建者房间创建成功
     client.emit('roomCreated', {
       roomId: data.roomId,
       routerRtpCapabilities: router.rtpCapabilities,
     });
     
-    // 然后广播给房间内的其他成员（如果有的话）
     client.broadcast.to(data.roomId).emit('newRoomAvailable', {
       roomId: data.roomId,
       routerRtpCapabilities: router.rtpCapabilities,
@@ -93,18 +92,16 @@ export default abstract class BaseStreamingGateway
       clientId: string;
     },
   ) {
-    // 创建webRTC传输通道
     const transport = await this.streamingService.createWebRTCRouter(data);
-    client.emit('transportIsCreated',
-      {
-        transportOptions: {
-          id: transport.id,
-          iceParameters: transport.iceParameters,
-          iceCandidates: transport.iceCandidates,
-          dtlsParameters: transport.dtlsParameters,
-        },
+    console.log('transportIsCreated执行次数: ', 99);
+    client.emit('transportIsCreated', {
+      transportOptions: {
+        id: transport.id,
+        iceParameters: transport.iceParameters,
+        iceCandidates: transport.iceCandidates,
+        dtlsParameters: transport.dtlsParameters,
       },
-    );
+    });
   }
 
   @SubscribeMessage('connectTransport')
@@ -121,16 +118,14 @@ export default abstract class BaseStreamingGateway
     try {
       await this.streamingService.connectTransport(data);
       const producerList = this.roomService.getProducerList(data.roomId);
-      client.emit('transportConnected',{viewers: 0});
+      client.emit('transportConnected', { viewers: 0 });
       client.broadcast.to(data.roomId).emit('producers', { producers: producerList });
     } catch (error) {
       console.error('连接传输失败:', error);
-      client.emit('error',
-        {
-          type: 'error',
-          message: error.message,
-        },
-      );
+      client.emit('error', {
+        type: 'error',
+        message: error.message,
+      });
     }
   }
 
@@ -147,23 +142,18 @@ export default abstract class BaseStreamingGateway
     },
   ) {
     try {
-      const {
-        consumer,
-        producer,
-      } = await this.streamingService.createConsume(data);
-      if(!consumer || !producer) throw new Error('Failed to create consumer');
+      const { consumer, producer } = await this.streamingService.createConsume(data);
+      if (!consumer || !producer) throw new Error('Failed to create consumer');
       await this.mediaService.handleConsumerCreation(consumer);
 
-      client.emit('consumerCreated',
-        {
-          id: consumer.id,
-          producerId: producer.id,
-          kind: consumer.kind,
-          rtpParameters: consumer.rtpParameters,
-          consumerType: consumer.type,
-          producerPaused: consumer.producerPaused,
-        },
-      );
+      client.emit('consumerCreated', {
+        id: consumer.id,
+        producerId: producer.id,
+        kind: consumer.kind,
+        rtpParameters: consumer.rtpParameters,
+        consumerType: consumer.type,
+        producerPaused: consumer.producerPaused,
+      });
     } catch (error) {
       console.log('consume error: ', error);
     }
@@ -178,12 +168,10 @@ export default abstract class BaseStreamingGateway
     },
   ) {
     const producerList = this.roomService.getProducerList(data.roomId);
-    client.emit('producers',
-      {
-        producers: producerList,
-        from: 'getProducers'
-      },
-    );
+    client.emit('producers', {
+      producers: producerList,
+      from: 'getProducers'
+    });
   }
 
   @SubscribeMessage('produce')
@@ -198,19 +186,88 @@ export default abstract class BaseStreamingGateway
       rtpParameters: RtpParameters;
     },
   ) {
-    const producer = await this.roomService.createProduce(data);
-    await this.mediaService.handleProducerCreation(producer);
+    try {
+      // 检查是否已存在 Producer
+      const existingProducer = Array.from(this.roomService.producers.values()).find(
+        (p) => p.appData.clientId === data.clientId && p.appData.roomId === data.roomId && p.kind === data.kind,
+      );
+      if (existingProducer) {
+        this.logger.log(`Producer already exists for client ${data.clientId}, kind ${data.kind}`);
+        const hlsUrl = `http://127.0.0.1:8080/hls/${data.roomId}/stream.m3u8`;
+        client.emit('producerCreated', {
+          producerId: existingProducer.id,
+          hlsUrl,
+        });
+        client.broadcast.to(data.roomId).emit('newProducer', {
+          producerId: existingProducer.id,
+          clientId: data.clientId,
+          hlsUrl,
+        });
+        return;
+      }
 
-    // 向创建 producer 的客户端发送确认
-    client.emit('producerCreated', {
-      producerId: producer.id,
-    });
-    
-    // 通知房间内其他人有新的 producer（使用 broadcast）
-    client.broadcast.to(data.roomId).emit('newProducer', {
-      producerId: producer.id,
-      clientId: data.clientId
-    });
+      // 创建 Producer
+      const producer = await this.roomService.createProduce(data);
+      await this.mediaService.handleProducerCreation(producer);
+      this.logger.log(`Producer created: ${producer.id} for room ${data.roomId}`);
+
+      // 检查是否已存在 PlainRtpTransport
+      let plainTransport: mediasoup.types.PlainTransport | undefined;
+      let consumer: mediasoup.types.Consumer | undefined;
+      const existingTransport = Array.from(this.roomService.transports.values()).find(
+        (t) => t.appData?.roomId === data.roomId,
+      );
+      if (existingTransport) {
+        this.logger.log(`PlainRtpTransport already exists for room ${data.roomId}`);
+        plainTransport = existingTransport as mediasoup.types.PlainTransport;
+        // 检查是否已存在 Consumer
+        consumer = Array.from(this.roomService.consumers.values()).find(
+          (c) => c.producerId === producer.id && c.appData?.roomId === data.roomId,
+        );
+      }
+
+      // 创建新的 PlainRtpTransport（如果不存在）
+      if (!plainTransport) {
+        const router = this.roomService.getRoom(data.roomId);
+        plainTransport = await this.mediaService.createPlainRtpTransport(router, data.roomId);
+        plainTransport.appData = { roomId: data.roomId };
+        this.roomService.transports.set(plainTransport.id, plainTransport);
+        this.logger.log(`Created PlainRtpTransport: ${plainTransport.id} for room ${data.roomId}`);
+      }
+
+      // 创建 Consumer（如果不存在）
+      if (!consumer) {
+        consumer = await this.mediaService.connectPlainRtpTransport(plainTransport, producer);
+        this.roomService.consumers.set(consumer.id, consumer);
+        this.logger.log(`Created Consumer: ${consumer.id} for Producer: ${producer.id}`);
+      }
+
+      // 启动 FFmpeg（仅在第一个 Producer 时启动）
+      let hlsUrl = `http://127.0.0.1:8080/hls/${data.roomId}/stream.m3u8`;
+      if (!this.ffmpegService.isTranscoding(data.roomId)) {
+        const rtpPort = plainTransport.tuple.localPort;
+        const rtcpPort = plainTransport.rtcpTuple?.localPort;
+        this.logger.log(`Starting FFmpeg with RTP port: ${rtpPort}, RTCP port: ${rtcpPort}`);
+        // hlsUrl = await this.ffmpegService.startHlsTranscoding(data.roomId, rtpPort, rtcpPort);
+      }
+
+      // 通知客户端
+      client.emit('producerCreated', {
+        producerId: producer.id,
+        hlsUrl,
+      });
+      client.broadcast.to(data.roomId).emit('newProducer', {
+        producerId: producer.id,
+        clientId: data.clientId,
+        hlsUrl,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to handle produce: ${error.message}`);
+      client.emit('error', {
+        type: 'produce_error',
+        message: error.message,
+      });
+    }
   }
 
   @SubscribeMessage('stopStreaming')
@@ -222,8 +279,24 @@ export default abstract class BaseStreamingGateway
       clientId: string;
     },
   ) {
+
+    try {
+      this.logger.log(`Stop streaming triggered for room ${data.roomId}, client ${data.clientId}`);
+      const producerIds = await this.roomService.closeRoomResources(data);
+      client.broadcast.to(data.roomId).emit('livestreamStopped', { producerIds });
+      await this.ffmpegService.stopHlsTranscoding(data.roomId);
+      this.logger.log(`Resources cleaned for room ${data.roomId}`);
+      client.emit('streamingStopped', { success: true });
+    } catch (error) {
+      this.logger.error(`Failed to stop streaming for room ${data.roomId}: ${error.message}`);
+      client.emit('error', {
+        type: 'stop_streaming_error',
+        message: error.message,
+      });
+    }
     const producerIds = this.roomService.getProducerIds(data);
-    // 广播给房间内其他成员
-    client.broadcast.to(data.roomId).emit('livestreamStopped', {producerIds});
+    client.broadcast.to(data.roomId).emit('livestreamStopped', { producerIds });
+    // 停止 FFmpeg 进程
+    this.ffmpegService.stopHlsTranscoding(data.roomId);
   }
 }
